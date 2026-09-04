@@ -40,7 +40,17 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="UpdateActionButton" TargetType="Button" BasedOn="{StaticResource PremiumButton}">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        </Style>
     </UserControl.Resources>
+
 
     <Grid>
         <Grid.RowDefinitions>
@@ -129,26 +139,32 @@
                             </Grid>
 
                             <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-                                <Button x:Name="CheckForUpdatesButton" Content="Check for Updates" Height="38" MinWidth="145" Margin="0,0,10,0"
-                                        Style="{StaticResource PremiumButton}" FocusVisualStyle="{x:Null}" Click="CheckForUpdatesButton_Click"/>
-                                <Button x:Name="UpdateNowButton" Content="Update Now" Height="38" MinWidth="120" Visibility="Collapsed"
-                                        Style="{StaticResource PremiumButton}" Background="#151B17" BorderBrush="{StaticResource ConnectedBrush}"
-                                        FocusVisualStyle="{x:Null}" Click="UpdateNowButton_Click"/>
+                                <Button x:Name="CheckForUpdatesButton" Content="Check for Updates" MinWidth="145" Margin="0,0,10,0"
+                                        Style="{StaticResource UpdateActionButton}" Click="CheckForUpdatesButton_Click"/>
+                                <Button x:Name="UpdateNowButton" Content="Update Now" MinWidth="120" Visibility="Collapsed"
+                                        Style="{StaticResource UpdateActionButton}" Background="#151B17" BorderBrush="{StaticResource ConnectedBrush}"
+                                        Click="UpdateNowButton_Click"/>
                             </StackPanel>
                         </Grid>
                     </Border>
 
                     <Border x:Name="DownloadPanel" Grid.Row="6" Background="#101510" BorderBrush="#2E5735" BorderThickness="1" CornerRadius="12" Padding="18" Visibility="Collapsed">
                         <Grid>
-                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="10"/><RowDefinition Height="8"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="12"/>
+                                <RowDefinition Height="8"/>
+                                <RowDefinition Height="16"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
                             <Grid>
                                 <TextBlock x:Name="DownloadStatusText" Text="Downloading update..." FontSize="13" FontWeight="SemiBold"/>
                                 <TextBlock x:Name="DownloadPercentText" Text="0%" Foreground="{StaticResource ConnectedBrush}" HorizontalAlignment="Right" FontSize="12"/>
                             </Grid>
                             <ProgressBar x:Name="UpdateDownloadProgress" Grid.Row="2" Minimum="0" Maximum="100" Value="0" Height="8"
                                          Background="#252525" Foreground="{StaticResource ConnectedBrush}" BorderThickness="0"/>
-                            <Button Grid.Row="4" Content="Cancel" Width="90" Height="34" HorizontalAlignment="Right"
-                                    Style="{StaticResource PremiumButton}" FocusVisualStyle="{x:Null}" Click="CancelDownloadButton_Click"/>
+                            <Button Grid.Row="4" Content="Cancel" Width="96" HorizontalAlignment="Right"
+                                    Style="{StaticResource UpdateActionButton}" Click="CancelDownloadButton_Click"/>
                         </Grid>
                     </Border>
 
@@ -157,11 +173,11 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="Update ready to install" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="UpdateReadyDetailText" Text="The verified update is ready." Foreground="{StaticResource SecondaryTextBrush}" FontSize="11.5" Margin="0,5,0,0"/>
+                                <TextBlock x:Name="UpdateReadyDetailText" Text="The verified update is ready." Foreground="{StaticResource SecondaryTextBrush}" FontSize="11.5" Margin="0,5,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Content="Later" Height="36" MinWidth="82" Margin="0,0,10,0" Style="{StaticResource PremiumButton}" Click="ReadyLaterButton_Click"/>
-                                <Button Content="Install and Restart" Height="36" MinWidth="155" Style="{StaticResource PremiumButton}"
+                                <Button Content="Later" MinWidth="88" Margin="0,0,10,0" Style="{StaticResource UpdateActionButton}" Click="ReadyLaterButton_Click"/>
+                                <Button Content="Install and Restart" MinWidth="170" Style="{StaticResource UpdateActionButton}"
                                         Background="#151B17" BorderBrush="{StaticResource ConnectedBrush}" Click="InstallAndRestartButton_Click"/>
                             </StackPanel>
                         </Grid>

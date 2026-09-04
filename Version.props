@@ -1,9 +1,9 @@
 <Project>
   <PropertyGroup>
-    <AppSemanticVersion>2.3.3-beta</AppSemanticVersion>
-    <Version>2.3.3</Version>
-    <AssemblyVersion>2.3.3.0</AssemblyVersion>
-    <FileVersion>2.3.3.0</FileVersion>
+    <AppSemanticVersion>2.3.4-beta</AppSemanticVersion>
+    <Version>2.3.4</Version>
+    <AssemblyVersion>2.3.4.0</AssemblyVersion>
+    <FileVersion>2.3.4.0</FileVersion>
     <InformationalVersion>$(AppSemanticVersion)</InformationalVersion>
   </PropertyGroup>
 </Project>
