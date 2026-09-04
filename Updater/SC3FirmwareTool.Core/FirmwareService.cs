@@ -7,7 +7,9 @@ namespace SC3FirmwareTool.Core;
 public sealed class FirmwareService
 {
     public event Action<UpdateProgress>? ProgressChanged;
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     public static string DefaultFirmwarePath => Path.Combine(AppContext.BaseDirectory, "Firmware", ReleasePolicy.FirmwareFileName);
+    public static string DefaultStockFirmwarePath => Path.Combine(AppContext.BaseDirectory, "Firmware", StockRecoveryPolicy.FirmwareFileName);
 
     public DeviceStatus Detect()
     {
@@ -27,6 +29,13 @@ public sealed class FirmwareService
         catch (Exception ex) { return new(true, false, false, "SC3 detected; firmware validation failed: " + ex.Message, identity.Path); }
     }
 
+    public RestoreDetection DetectRestore()
+    {
+        DeviceStatus normal = Detect();
+        bool bootloaderPresent = HidDiscovery.FindBoot() is not null;
+        return RestoreFlowPolicy.ClassifyStart(normal, bootloaderPresent);
+    }
+
     public string Info()
     {
         DeviceStatus status = Detect();
@@ -40,6 +49,7 @@ public sealed class FirmwareService
     }
 
     public MvaPackage Verify(string? path = null) => MvaPackage.LoadApproved(path ?? DefaultFirmwarePath);
+    public MvaPackage VerifyStock(string? path = null) => MvaPackage.LoadStockRecovery(path ?? DefaultStockFirmwarePath);
 
     public DryRunResult DryRun(string? path = null)
     {
@@ -48,6 +58,29 @@ public sealed class FirmwareService
         if (!device.ValidatedProfile) throw new FirmwareUpdateException(device.Message);
         Report(UpdaterState.ValidatingFirmware, 0, "Validating firmware");
         MvaPackage package = Verify(path);
+        (_, int data, int ack, int outbound) = ValidateProtocolPlan(package);
+        Report(UpdaterState.Success, 100, "Dry run passed", data, data, (long)data * 256, TimeSpan.Zero);
+        return new(true, data, ack, outbound, package.Sha256,
+            $"Exact-unit profile, approved MVA, vendor erase behavior (16 polls, 500 ms spacing, 6.5 s read allowance, Windows 31/121 no-status only after valid progress, exact metadata selection required, 1000 ms post-erase settle), vendor section pacing (Code 879 ms / Const 339 ms), strict 256-byte sector ACK fail-closed policy, Const-only then Code+Const, {data} data reports, {ack} sector ACKs and both finalizations validated; no bootloader, erase or firmware-write command sent.");
+    }
+
+    public RestoreDryRunResult RestoreStockDryRun(string? path = null)
+    {
+        Report(UpdaterState.ValidatingDevice, 0, "Validating SC3 restore state");
+        RestoreDetection detection = DetectRestore();
+        if (!detection.CanRestore || detection.StartMode is null) throw new FirmwareUpdateException(detection.Message);
+        Report(UpdaterState.ValidatingFirmware, 0, "Validating Stock V22 recovery package");
+        MvaPackage package = VerifyStock(path);
+        (_, int data, int ack, int outbound) = ValidateProtocolPlan(package);
+        string transition = detection.StartMode == RestoreStartMode.Normal
+            ? "validated normal SC3 -> known bootloader"
+            : "known bootloader already present";
+        return new(true, detection.StartMode.Value, data, ack, outbound, package.Sha256,
+            $"Stock V22 package and {transition}; erase/transfer/finalization plan ({data} reports, {ack} ACKs) and post-restore stock verification plan validated. No bootloader-enter, erase, firmware-write, finalize, or reboot command was sent.");
+    }
+
+    private static (IReadOnlyList<ProtocolStep> Plan, int Data, int Ack, int Outbound) ValidateProtocolPlan(MvaPackage package)
+    {
         IReadOnlyList<ProtocolStep> plan = ProtocolPlan.Build(package);
         int fullData = plan.Count(x => x.Operation == ProtocolOperation.Write && x.DataBlock > 0);
         int fullAck = plan.Count(x => x.Operation == ProtocolOperation.Read && x.Label.Contains("ACK", StringComparison.Ordinal));
@@ -60,10 +93,17 @@ public sealed class FirmwareService
             throw new FirmwareUpdateException($"Two-stage protocol plan count mismatch ({constData}/{constAck}/{fullData}/{fullAck}/{outbound}).");
         if (plan.Where(x => x.Bytes is not null && x.Operation == ProtocolOperation.Write).Any(x => x.Bytes!.Length != 256))
             throw new FirmwareUpdateException("Protocol report size mismatch.");
-        if (!plan.Any(x => x.Bytes?.AsSpan(0, 8).SequenceEqual("chiperas"u8) == true) ||
+        if (!plan.Any(x => x.Operation == ProtocolOperation.BootFeatureWrite) ||
+            !plan.Any(x => x.Operation == ProtocolOperation.BootFeatureRead) ||
+            !plan.Any(x => x.Operation == ProtocolOperation.BootDisconnect) ||
+            !plan.Any(x => x.Operation == ProtocolOperation.BootAppear) ||
+            !plan.Any(x => x.Bytes?.AsSpan(0, 8).SequenceEqual("chiperas"u8) == true) ||
             !plan.Any(x => x.Bytes?.AsSpan(0, 8).SequenceEqual("codedata"u8) == true) ||
-            !plan.Any(x => x.Bytes?.AsSpan(0, 6).SequenceEqual("upinfo"u8) == true))
-            throw new FirmwareUpdateException("Required protocol stages missing.");
+            !plan.Any(x => x.Bytes?.AsSpan(0, 8).SequenceEqual("constdat"u8) == true) ||
+            !plan.Any(x => x.Bytes?.AsSpan(0, 6).SequenceEqual("upinfo"u8) == true) ||
+            !plan.Any(x => x.Operation == ProtocolOperation.NormalReturn) ||
+            !plan.Any(x => x.Operation == ProtocolOperation.Verify))
+            throw new FirmwareUpdateException("Required bootloader, transfer, finalization or verification plan stage is missing.");
         byte[] constSelection = (byte[])package.Metadata.Clone();
         Convert.FromHexString("FF55FFFFFF").CopyTo(constSelection, 8);
         byte[] fullSelection = (byte[])package.Metadata.Clone();
@@ -74,15 +114,15 @@ public sealed class FirmwareService
         if (VendorTransferTiming.SectionPrepareDelay(package.CodeLength) != TimeSpan.FromMilliseconds(879) ||
             VendorTransferTiming.SectionPrepareDelay(package.ConstLength) != TimeSpan.FromMilliseconds(339))
             throw new FirmwareUpdateException("Vendor section pacing validation failed.");
-        Report(UpdaterState.Success, 100, "Dry run passed", data, data, (long)data * 256, TimeSpan.Zero);
-        return new(true, data, ack, outbound, package.Sha256,
-            $"Exact-unit profile, approved MVA, vendor erase behavior (16 polls, 500 ms spacing, 6.5 s read allowance, Windows 31/121 no-status only after valid progress, exact metadata selection required, 1000 ms post-erase settle), vendor section pacing (Code 879 ms / Const 339 ms), strict 256-byte sector ACK fail-closed policy, Const-only then Code+Const, {data} data reports, {ack} sector ACKs and both finalizations validated; no bootloader, erase or firmware-write command sent.");
+        return (plan, data, ack, outbound);
     }
 
     public async Task InstallRgbAsync(string explicitConfirmation, CancellationToken cancellationToken = default)
     {
         if (explicitConfirmation != ReleasePolicy.BuildId)
             throw new FirmwareUpdateException("Explicit install confirmation missing.");
+        if (!await _operationGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            throw new FirmwareUpdateException("Another firmware operation is active.");
         string logPath = CreateLogPath(); bool destructive = false;
         void Log(string text) => File.AppendAllText(logPath, $"{DateTimeOffset.UtcNow:O} {text}{Environment.NewLine}");
         void Set(UpdaterState state, int percent, string message, int current = 0, int total = 0, long bytes = 0, TimeSpan elapsed = default)
@@ -99,31 +139,14 @@ public sealed class FirmwareService
             if (normal is not null && boot is not null) throw new FirmwareUpdateException("Ambiguous SC3 state.");
             Set(UpdaterState.ValidatingFirmware, 0, "Checking approved firmware");
             MvaPackage package = Verify();
-            IReadOnlyList<ProtocolStep> plan = ProtocolPlan.Build(package);
-            if (plan.Count(x => x.Operation == ProtocolOperation.Write && x.DataBlock > 0) != 6496 ||
-                plan.Count(x => x.Operation == ProtocolOperation.Read && x.Label.Contains("ACK", StringComparison.Ordinal)) != 406)
-                throw new FirmwareUpdateException("Validated protocol plan mismatch.");
+            (IReadOnlyList<ProtocolStep> plan, _, _, _) = ValidateProtocolPlan(package);
             Log($"FirmwareSha256={package.Sha256} BuildId={ReleasePolicy.BuildId} NormalProfile={ReleasePolicy.NormalVid:X4}:{ReleasePolicy.NormalPid:X4} BootProfile={ReleasePolicy.BootVid:X4}:{ReleasePolicy.BootPid:X4}");
             cancellationToken.ThrowIfCancellationRequested();
             Native.SetThreadExecutionState(0x80000001 | 0x00000040);
             Stopwatch elapsed = Stopwatch.StartNew();
             if (normal is not null) boot = await EnterBootloaderAsync(normal, plan, cancellationToken, false, Set);
-            bool fullImageWritten = false;
-            for (int session = 1; session <= 2 && !fullImageWritten; session++)
-            {
-                destructive = true;
-                Set(UpdaterState.BootloaderConnected, 3, $"Installing firmware (stage {session}/2)");
-                (bool code, bool constants) = await RunBootSessionAsync(boot!, package, elapsed, Log, Set);
-                fullImageWritten = code && constants;
-                Set(UpdaterState.WaitingForReboot, fullImageWritten ? 99 : 45, "Restarting SC3");
-                await WaitUntilAsync(() => HidDiscovery.FindBoot() is null, TimeSpan.FromSeconds(15), CancellationToken.None, true, "Bootloader did not disconnect.");
-                if (!fullImageWritten)
-                {
-                    boot = await WaitForAsync(HidDiscovery.FindBoot, TimeSpan.FromSeconds(8), CancellationToken.None, true, "SC3 did not return to bootloader for the required second stage.");
-                    Log("First stage selected Const only; continuing with bounded second vendor-proven stage.");
-                }
-            }
-            if (!fullImageWritten) throw new FirmwareUpdateException("Code and Const were not both selected within two stages.", true);
+            destructive = true;
+            await FlashPackageAsync(boot!, package, elapsed, Log, Set, "Installing firmware");
             HidIdentity returned = await WaitForAsync(HidDiscovery.FindValidatedNormal, TimeSpan.FromSeconds(30), CancellationToken.None, true, "Validated SC3 did not return.");
             Set(UpdaterState.VerifyingDevice, 99, "Verifying SC3");
             if (QueryOfficialVersion(returned) != ReleasePolicy.OfficialVersion || !QueryAttestation(returned))
@@ -181,7 +204,158 @@ public sealed class FirmwareService
             if (outcome == UpdaterState.SetupSucceeded) return;
             throw new FirmwareUpdateException(ex.Message, effectiveDestructive, ex, outcome);
         }
-        finally { Native.SetThreadExecutionState(0x80000000); }
+        finally
+        {
+            Native.SetThreadExecutionState(0x80000000);
+            _operationGate.Release();
+        }
+    }
+
+    public async Task RestoreStockFirmwareAsync(string explicitConfirmation, CancellationToken cancellationToken = default)
+    {
+        if (!StockRecoveryPolicy.IsConfirmed(explicitConfirmation))
+            throw new FirmwareUpdateException("Explicit stock-recovery confirmation missing.");
+        if (!await _operationGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            throw new FirmwareUpdateException("Another firmware operation is active.");
+
+        string logPath = CreateLogPath("restore-stock");
+        bool destructive = false;
+        void Log(string text) => File.AppendAllText(logPath, $"{DateTimeOffset.UtcNow:O} {text}{Environment.NewLine}");
+        void Set(UpdaterState state, int percent, string message, int current = 0, int total = 0, long bytes = 0, TimeSpan elapsed = default)
+        { Log($"{state} {percent}% {message}"); Report(state, percent, message, current, total, bytes, elapsed); }
+
+        Log($"UpdaterHost=InProcessCore Operation=RestoreStock ProcessPath={Environment.ProcessPath ?? "unknown"}");
+        Log($"BaseDirectory={AppContext.BaseDirectory} CurrentDirectory={Environment.CurrentDirectory} Architecture={RuntimeInformation.ProcessArchitecture}");
+        Log($"StockFirmwarePath={DefaultStockFirmwarePath}");
+        try
+        {
+            Set(UpdaterState.ValidatingDevice, 0, "Preparing SC3");
+            RestoreDetection detection = DetectRestore();
+            if (!detection.CanRestore || detection.StartMode is null)
+                throw new FirmwareUpdateException(detection.Message);
+
+            // Stock package validation is intentionally completed before any
+            // bootloader-enter or destructive command is permitted.
+            Set(UpdaterState.ValidatingFirmware, 0, "Checking original firmware");
+            MvaPackage package = VerifyStock();
+            (IReadOnlyList<ProtocolStep> plan, _, _, _) = ValidateProtocolPlan(package);
+            Log($"FirmwareSha256={package.Sha256} BuildId={StockRecoveryPolicy.BuildId} StartMode={detection.StartMode} NormalProfile={ReleasePolicy.NormalVid:X4}:{ReleasePolicy.NormalPid:X4} BootProfile={ReleasePolicy.BootVid:X4}:{ReleasePolicy.BootPid:X4}");
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Native.SetThreadExecutionState(0x80000001 | 0x00000040);
+            Stopwatch elapsed = Stopwatch.StartNew();
+            HidIdentity boot;
+            if (detection.StartMode == RestoreStartMode.Normal)
+            {
+                HidIdentity normal = HidDiscovery.FindValidatedNormal()
+                    ?? throw new FirmwareUpdateException("Validated SC3 disappeared before recovery bootloader entry.");
+                boot = await EnterBootloaderAsync(normal, plan, cancellationToken, false, Set);
+            }
+            else
+            {
+                boot = HidDiscovery.FindBoot()
+                    ?? throw new FirmwareUpdateException("The validated SC3 recovery bootloader disappeared before restoration began.");
+                Set(UpdaterState.BootloaderConnected, 2, "Preparing SC3");
+            }
+
+            destructive = true;
+            await FlashPackageAsync(boot, package, elapsed, Log, Set, "Restoring original firmware");
+            HidIdentity returned = await WaitForAsync(HidDiscovery.FindValidatedNormal, TimeSpan.FromSeconds(30), CancellationToken.None, true, "Validated SC3 did not return after stock restoration.");
+            Set(UpdaterState.VerifyingDevice, 99, "Verifying");
+            if (HidDiscovery.FindBoot() is not null)
+                throw new FirmwareUpdateException("Recovery bootloader remained present after normal SC3 returned.", true);
+            if (QueryOfficialVersion(returned) != ReleasePolicy.OfficialVersion || QueryAttestation(returned))
+                throw new FirmwareUpdateException("Post-restore stock firmware verification failed.", true);
+
+            await VerifyStableNormalAsync(CancellationToken.None);
+            DeviceStatus verified = Detect();
+            bool bootPresent = HidDiscovery.FindBoot() is not null;
+            if (!StockVerificationPolicy.IsVerifiedStock(verified, bootPresent))
+                throw new FirmwareUpdateException("SC3 returned, but verified Stock V22 state was not stable.", true);
+
+            Set(UpdaterState.RestoreSucceeded, 100, "Done", 6496, 6496, 6496L * 256, elapsed.Elapsed);
+        }
+        catch (OperationCanceledException) when (!destructive)
+        {
+            Report(UpdaterState.Failed, 0, "Restoration cancelled safely.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            File.AppendAllText(logPath, $"{DateTimeOffset.UtcNow:O} ERROR {ex}{Environment.NewLine}");
+            bool effectiveDestructive = destructive || ex is FirmwareUpdateException { Destructive: true };
+            DeviceStatus postFailureNormal;
+            bool bootPresent;
+            try
+            {
+                postFailureNormal = Detect();
+                bootPresent = HidDiscovery.FindBoot() is not null;
+                if (effectiveDestructive && !postFailureNormal.Present && !bootPresent)
+                {
+                    Stopwatch probe = Stopwatch.StartNew();
+                    while (probe.Elapsed < TimeSpan.FromSeconds(8) && !postFailureNormal.Present && !bootPresent)
+                    {
+                        await Task.Delay(100).ConfigureAwait(false);
+                        postFailureNormal = Detect();
+                        bootPresent = HidDiscovery.FindBoot() is not null;
+                    }
+                    Log($"PostRestoreFailureProbe elapsedMs={probe.Elapsed.TotalMilliseconds:F0} normalPresent={postFailureNormal.Present} bootPresent={bootPresent}");
+                }
+            }
+            catch (Exception verifyEx)
+            {
+                Log($"PostRestoreFailureVerificationError={verifyEx.GetType().Name}: {verifyEx.Message}");
+                postFailureNormal = new(false, false, false, "Post-restore-failure device verification failed.");
+                bootPresent = HidDiscovery.FindBoot() is not null;
+            }
+
+            UpdaterState outcome = FirmwareOutcomeClassifier.ClassifyRestorePostFailure(effectiveDestructive, postFailureNormal, bootPresent);
+            string message = outcome switch
+            {
+                UpdaterState.RestoreFailedDeviceHealthy => "Restore failed, but your SC3 is working normally.",
+                UpdaterState.RestoreFailedBootloaderAvailable => "SC3 is still in recovery mode.",
+                UpdaterState.RestoreRecoveryRequired => "SC3 recovery is required.",
+                _ => ex.Message
+            };
+            Log($"PostRestoreFailureOutcome={outcome} normalPresent={postFailureNormal.Present} validated={postFailureNormal.ValidatedProfile} modInstalled={postFailureNormal.ModInstalled} bootPresent={bootPresent} destructive={effectiveDestructive}");
+            Report(outcome, 0, message);
+            throw new FirmwareUpdateException(ex.Message, effectiveDestructive, ex, outcome);
+        }
+        finally
+        {
+            Native.SetThreadExecutionState(0x80000000);
+            _operationGate.Release();
+        }
+    }
+
+    private static async Task VerifyStableNormalAsync(CancellationToken cancellationToken)
+    {
+        for (int probe = 0; probe < 3; probe++)
+        {
+            if (HidDiscovery.FindValidatedNormal() is null || HidDiscovery.FindBoot() is not null)
+                throw new FirmwareUpdateException("SC3 USB state was not stable after restoration.", true);
+            if (probe < 2) await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+        }
+    }
+    private async Task FlashPackageAsync(HidIdentity boot, MvaPackage package, Stopwatch elapsed,
+        Action<string> log, Action<UpdaterState,int,string,int,int,long,TimeSpan> set, string operationMessage)
+    {
+        bool fullImageWritten = false;
+        HidIdentity currentBoot = boot;
+        for (int session = 1; session <= 2 && !fullImageWritten; session++)
+        {
+            set(UpdaterState.BootloaderConnected, 3, $"{operationMessage} (stage {session}/2)", 0, 0, 0, elapsed.Elapsed);
+            (bool code, bool constants) = await RunBootSessionAsync(currentBoot, package, elapsed, log, set, operationMessage);
+            fullImageWritten = code && constants;
+            set(UpdaterState.WaitingForReboot, fullImageWritten ? 99 : 45, "Restarting SC3", 0, 0, 0, elapsed.Elapsed);
+            await WaitUntilAsync(() => HidDiscovery.FindBoot() is null, TimeSpan.FromSeconds(15), CancellationToken.None, true, "Bootloader did not disconnect.");
+            if (!fullImageWritten)
+            {
+                currentBoot = await WaitForAsync(HidDiscovery.FindBoot, TimeSpan.FromSeconds(8), CancellationToken.None, true, "SC3 did not return to bootloader for the required second stage.");
+                log("First stage selected Const only; continuing with bounded second vendor-proven stage.");
+            }
+        }
+        if (!fullImageWritten) throw new FirmwareUpdateException("Code and Const were not both selected within two stages.", true);
     }
 
     private async Task<HidIdentity> EnterBootloaderAsync(HidIdentity normal, IReadOnlyList<ProtocolStep> plan,
@@ -202,10 +376,10 @@ public sealed class FirmwareService
 
     private async Task<(bool Code, bool Constants)> RunBootSessionAsync(HidIdentity boot, MvaPackage package,
         Stopwatch elapsed, Action<string> log,
-        Action<UpdaterState,int,string,int,int,long,TimeSpan> set)
+        Action<UpdaterState,int,string,int,int,long,TimeSpan> set, string operationMessage = "Installing firmware")
     {
         using HidConnection connection = new(boot);
-        set(UpdaterState.Erasing, 4, "Installing firmware", 0, 0, 0, elapsed.Elapsed);
+        set(UpdaterState.Erasing, 4, operationMessage, 0, 0, 0, elapsed.Elapsed);
         connection.Write(Pad("chiperas"u8));
         int previousProgress = 0; bool erased = false; int noStatusFailures = 0; int pollsAttempted = 0;
         for (int poll = 0; poll < VendorTransferTiming.ErasePollCount; poll++)
@@ -245,7 +419,7 @@ public sealed class FirmwareService
             log($"EraseCompletionDeferred polls={pollsAttempted}/{VendorTransferTiming.ErasePollCount} lastValidProgress={previousProgress}/30 noStatusFailures={noStatusFailures} fullVendorPollWindow=true requireExactMetadataSelection=true");
         log($"PostEraseSettleDelay delayMs={VendorTransferTiming.PostEraseSettleMilliseconds} source=vendor-helper-Sleep(1000)");
         await Task.Delay(VendorTransferTiming.PostEraseSettleDelay).ConfigureAwait(false);
-        set(UpdaterState.PreparingUpdate, 8, "Installing firmware", 0, 0, 0, elapsed.Elapsed);
+        set(UpdaterState.PreparingUpdate, 8, operationMessage, 0, 0, 0, elapsed.Elapsed);
         connection.Write(package.Metadata);
         byte[] selection = connection.Read();
         FirmwareSectionSelection selected = ProtocolPlan.ValidateSectionSelection(package.Metadata, selection);
@@ -256,9 +430,9 @@ public sealed class FirmwareService
         log($"FirmwareSectionSelection={selected} code={code} constants={constants}");
         int total = (code ? ((package.CodeLength + 4095) / 4096) * 16 : 0) + ((package.ConstLength + 4095) / 4096) * 16;
         int current = 0; byte[] previous = selection;
-        if (code) (previous,current) = await TransferSection(connection, package, "codedata"u8.ToArray(), package.CodeStart, package.CodeLength, previous, current, total, elapsed, log);
-        if (constants) (previous,current) = await TransferSection(connection, package, "constdat"u8.ToArray(), package.ConstStart, package.ConstLength, previous, current, total, elapsed, log);
-        set(UpdaterState.Finalizing, code ? 99 : 44, "Finalizing firmware", current, total, (long)current * 256, elapsed.Elapsed);
+        if (code) (previous,current) = await TransferSection(connection, package, "codedata"u8.ToArray(), package.CodeStart, package.CodeLength, previous, current, total, elapsed, log, operationMessage);
+        if (constants) (previous,current) = await TransferSection(connection, package, "constdat"u8.ToArray(), package.ConstStart, package.ConstLength, previous, current, total, elapsed, log, operationMessage);
+        set(UpdaterState.Finalizing, code ? 99 : 44, operationMessage, current, total, (long)current * 256, elapsed.Elapsed);
         byte[] final = new byte[256]; "upinfo"u8.CopyTo(final); previous.AsSpan(6,2).CopyTo(final.AsSpan(6)); "ok"u8.CopyTo(final.AsSpan(8)); previous.AsSpan(10).CopyTo(final.AsSpan(10));
         log($"Finalize send sectionSelection={selected} reportsWritten={current}/{total}");
         bool finalOk=connection.TryFinalWrite(final,out int error,out TimeSpan finalTime);
@@ -268,7 +442,7 @@ public sealed class FirmwareService
     }
 
     private async Task<(byte[] Previous, int Current)> TransferSection(HidConnection connection, MvaPackage package, ReadOnlyMemory<byte> name,
-        int start, int length, byte[] previous, int current, int total, Stopwatch elapsed, Action<string> log)
+        int start, int length, byte[] previous, int current, int total, Stopwatch elapsed, Action<string> log, string operationMessage)
     {
         string sectionName = System.Text.Encoding.ASCII.GetString(name.Span);
         byte[] prepare = new byte[256]; name.Span.CopyTo(prepare); previous.AsSpan(8).CopyTo(prepare.AsSpan(8)); connection.Write(prepare);
@@ -312,7 +486,7 @@ public sealed class FirmwareService
             log($"SectorAckOk section={sectionName} ordinal={ackOrdinal}/{sectors} sector={sector} reportsWritten={current}/{total}");
             previous = expected;
             int percent = 8 + (int)(90L * current / total);
-            Report(UpdaterState.Transferring, percent, "Installing firmware", current, total, (long)current * 256, elapsed.Elapsed);
+            Report(UpdaterState.Transferring, percent, operationMessage, current, total, (long)current * 256, elapsed.Elapsed);
             if ((current & 255) == 0) log($"Transferred {current}/{total} reports");
             await Task.Yield();
         }
@@ -337,5 +511,5 @@ public sealed class FirmwareService
     private static async Task<T> WaitForAsync<T>(Func<T?> probe, TimeSpan timeout, CancellationToken token, bool destructive, string failure) where T:class
     { var sw=Stopwatch.StartNew(); while(sw.Elapsed<timeout){if(probe() is { } value)return value; token.ThrowIfCancellationRequested(); await Task.Delay(250,token);} throw new FirmwareUpdateException(failure,destructive); }
     private void Report(UpdaterState state, int percent, string message, int current=0, int total=0, long bytes=0, TimeSpan elapsed=default) => ProgressChanged?.Invoke(new(state,percent,message,current,total,bytes,elapsed));
-    private static string CreateLogPath(){string d=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"FIFINE SC3 RGB+","Logs");Directory.CreateDirectory(d);return Path.Combine(d,$"firmware-{DateTime.Now:yyyyMMdd-HHmmss}.log");}
+    private static string CreateLogPath(string prefix = "firmware"){string d=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"FIFINE SC3 RGB+","Logs");Directory.CreateDirectory(d);return Path.Combine(d,$"{prefix}-{DateTime.Now:yyyyMMdd-HHmmss}.log");}
 }

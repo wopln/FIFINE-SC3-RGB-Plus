@@ -4,7 +4,7 @@ using SC3FirmwareTool.Core;
 static void Write(object value) => Console.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
 if (args.Length == 0 || args[0] is "help" or "--help")
 {
-    Console.WriteLine("SC3FirmwareTool detect|info|verify|install-rgb [--dry-run|--confirm SC3R-11140100]");
+    Console.WriteLine("SC3FirmwareTool detect|detect-recovery|info|verify|verify-stock|install-rgb [--dry-run|--confirm SC3R-11140100]|restore-stock --dry-run");
     return 2;
 }
 
@@ -15,11 +15,18 @@ try
     switch (args[0].ToLowerInvariant())
     {
         case "detect": Write(service.Detect()); break;
+        case "detect-recovery": Write(service.DetectRestore()); break;
         case "info": Console.WriteLine(service.Info()); break;
         case "verify":
             var package = service.Verify();
             Write(new { verified = true, package.Sha256, size = package.Data.Length, releaseTier = ReleasePolicy.NativeUpdaterReleaseTier });
             break;
+        case "verify-stock":
+            var stock = service.VerifyStock();
+            Write(new { verified = true, stock.Sha256, size = stock.Data.Length, buildId = StockRecoveryPolicy.BuildId });
+            break;
+        case "restore-stock" when args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase):
+            Write(service.RestoreStockDryRun()); break;
         case "install-rgb" when args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase):
             Write(service.DryRun()); break;
         case "install-rgb":

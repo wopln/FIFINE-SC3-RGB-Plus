@@ -33,6 +33,9 @@ public sealed class AppSettings
     [JsonPropertyName("StartWithWindows")]
     public bool StartWithWindows { get; set; } = true;
 
+    [JsonPropertyName("AutomaticallyCheckForUpdates")]
+    public bool AutomaticallyCheckForUpdates { get; set; } = true;
+
     public bool PresetsInitialized { get; set; }
     public List<ColorPreset> Presets { get; set; } = [];
 }

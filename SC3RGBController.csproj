@@ -13,11 +13,8 @@
     <Product>FIFINE SC3 RGB+</Product>
     <Description>FIFINE SC3 RGB lighting controller</Description>
     <Company>FIFINE SC3 RGB+ Project</Company>
-    <Version>2.3.0</Version>
-    <AssemblyVersion>2.3.0.0</AssemblyVersion>
-    <FileVersion>2.3.0.0</FileVersion>
-    <InformationalVersion>2.3.0-beta</InformationalVersion>
   </PropertyGroup>
+  <Import Project="Version.props" />
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
@@ -29,5 +26,6 @@
     <Content Include="Assets\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Resource Include="Assets\fifine_sc3_rgb_plus.ico" />
     <Content Include="firmware\candidates\mod14\SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva" Link="Firmware\SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="firmware\recovery\SC3_V22_recovery.MVA" Link="Firmware\SC3_V22_recovery.MVA" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

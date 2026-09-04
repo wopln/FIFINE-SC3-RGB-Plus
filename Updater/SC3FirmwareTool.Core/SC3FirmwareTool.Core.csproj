@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>SC3FirmwareTool.Core</AssemblyName>
   </PropertyGroup>
+  <Import Project="..\..\Version.props" />
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>

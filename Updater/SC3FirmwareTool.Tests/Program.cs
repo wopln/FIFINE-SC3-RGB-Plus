@@ -97,3 +97,73 @@ try { MvaPackage.LoadApproved(temporary); throw new Exception("corrupt package a
 catch (FirmwareUpdateException) { }
 finally { File.Delete(temporary); }
 Console.WriteLine("PASS: package/profile, full 16-poll vendor erase window after captured 16/30 + Windows 31/121 with exact metadata gate, 500ms pacing + 6.5s read allowance + 1000ms settle + 879ms/339ms section pacing + immediate post-SET sector ACK read, sector error31/timeout fail-closed, Code->Const transition, 1808 Const reports, 6496 full-session data reports, 406 ACKs, finalization, corruption rejection");
+// Restore Original Firmware regression suite.
+string stockFirmware = Path.Combine(root, "firmware", "recovery", StockRecoveryPolicy.FirmwareFileName);
+MvaPackage stockPackage = MvaPackage.LoadStockRecovery(stockFirmware);
+Require(stockPackage.Sha256 == StockRecoveryPolicy.FirmwareSha256, "1 stock recovery SHA accepted");
+Require(stockPackage.Data.LongLength == StockRecoveryPolicy.FirmwareSize, "1 stock recovery size accepted");
+var stockPlan = ProtocolPlan.Build(stockPackage);
+Require(stockPlan.Count(x => x.Operation == ProtocolOperation.Write && x.DataBlock > 0) == 6496, "stock data plan");
+Require(stockPlan.Count(x => x.Operation == ProtocolOperation.Read && x.Label.Contains("ACK")) == 406, "stock ACK plan");
+Require(stockPlan.Any(x => x.Bytes?.AsSpan(0, 8).SequenceEqual("chiperas"u8) == true), "stock erase plan");
+Require(stockPlan.Any(x => x.Bytes?.AsSpan(0, 8).SequenceEqual("codedata"u8) == true), "stock code plan");
+Require(stockPlan.Any(x => x.Bytes?.AsSpan(0, 8).SequenceEqual("constdat"u8) == true), "stock const plan");
+Require(stockPlan.Any(x => x.Bytes?.AsSpan(0, 6).SequenceEqual("upinfo"u8) == true), "stock finalization plan");
+
+string stockTempDir = Path.Combine(Path.GetTempPath(), "sc3-stock-test-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(stockTempDir);
+string corruptStockPath = Path.Combine(stockTempDir, StockRecoveryPolicy.FirmwareFileName);
+byte[] corruptStock = (byte[])stockPackage.Data.Clone();
+corruptStock[700] ^= 1;
+File.WriteAllBytes(corruptStockPath, corruptStock);
+try { MvaPackage.LoadStockRecovery(corruptStockPath); throw new Exception("2 wrong recovery SHA accepted"); }
+catch (FirmwareUpdateException ex) { Require(!ex.Destructive, "2 bad stock package rejection must be pre-destructive"); }
+finally { Directory.Delete(stockTempDir, true); }
+
+DeviceStatus validatedMod = new(true, true, true, "mod");
+DeviceStatus validatedStock = new(true, true, false, "stock");
+DeviceStatus unsupported = new(true, false, false, "unsupported");
+DeviceStatus missing = new(false, false, false, "missing");
+
+RestoreDetection unsupportedStart = RestoreFlowPolicy.ClassifyStart(unsupported, false);
+Require(!unsupportedStart.CanRestore, "3 unsupported device rejected");
+RestoreDetection normalStart = RestoreFlowPolicy.ClassifyStart(validatedMod, false);
+Require(normalStart.CanRestore && normalStart.StartMode == RestoreStartMode.Normal && !normalStart.RecoveryMode, "4 normal mode restore flow");
+RestoreDetection bootStart = RestoreFlowPolicy.ClassifyStart(missing, true);
+Require(bootStart.CanRestore && bootStart.StartMode == RestoreStartMode.Bootloader && bootStart.RecoveryMode, "5 bootloader restore flow");
+Require(!RestoreFlowPolicy.ClassifyStart(validatedMod, true).CanRestore, "ambiguous normal+boot rejected");
+
+FirmwareService confirmationService = new();
+try
+{
+    confirmationService.RestoreStockFirmwareAsync("CANCELLED").GetAwaiter().GetResult();
+    throw new Exception("6 cancelled restore accepted");
+}
+catch (FirmwareUpdateException ex)
+{
+    Require(!ex.Destructive && ex.Outcome == UpdaterState.Failed, "6 cancel/invalid confirmation must cause zero destructive commands");
+}
+Require(!StockRecoveryPolicy.IsConfirmed("CANCELLED") && StockRecoveryPolicy.IsConfirmed(StockRecoveryPolicy.Confirmation), "restore confirmation policy");
+
+var bootEntryTimeout = new FirmwareUpdateException("SC3 bootloader did not appear.", false);
+Require(!bootEntryTimeout.Destructive && bootEntryTimeout.Outcome == UpdaterState.Failed, "7 bootloader entry timeout is pre-destructive");
+
+// 8 ACK fail-closed is exercised above for malformed, stale and I/O-failed ACKs.
+Require(FirmwareOutcomeClassifier.ClassifyRestorePostFailure(true, missing, true) == UpdaterState.RestoreFailedBootloaderAvailable,
+    "9 destructive transfer failure with bootloader available");
+Require(FirmwareOutcomeClassifier.ClassifyRestorePostFailure(true, validatedMod, false) == UpdaterState.RestoreFailedDeviceHealthy,
+    "10 finalization failure with healthy normal device");
+Require(FirmwareOutcomeClassifier.ClassifyRestorePostFailure(true, missing, false) == UpdaterState.RestoreRecoveryRequired,
+    "11 reboot timeout with neither state");
+Require(FirmwareOutcomeClassifier.ClassifyRestorePostFailure(true, validatedStock, false) == UpdaterState.RestoreFailedDeviceHealthy,
+    "12 healthy normal after restore failure");
+Require(FirmwareOutcomeClassifier.ClassifyRestorePostFailure(true, missing, true) == UpdaterState.RestoreFailedBootloaderAvailable,
+    "13 bootloader remaining after restore failure");
+Require(StockVerificationPolicy.IsVerifiedStock(validatedStock, false), "14 successful stock verification");
+Require(!StockVerificationPolicy.IsVerifiedStock(validatedMod, false), "15 RGB+ attestation must be absent after stock restore");
+Require(FirmwarePresentationPolicy.ReadyLabel(validatedStock, false, false) == "RGB setup required", "16 app returns to RGB setup required");
+Require(FirmwarePresentationPolicy.ReadyLabel(validatedMod, false, true) != "RGB Ready", "17 RGB Ready hidden during restore");
+Require(FirmwarePresentationPolicy.ReadyLabel(validatedMod, false, false) == "RGB Ready", "18 existing Mod 1.4 ready state regression");
+Require(MvaPackage.LoadApproved(firmware).Sha256 == ReleasePolicy.FirmwareSha256, "18 existing Mod 1.4 package validation regression");
+
+Console.WriteLine("PASS: Restore Original Firmware tests 1-18 + existing Mod 1.4 updater regression");

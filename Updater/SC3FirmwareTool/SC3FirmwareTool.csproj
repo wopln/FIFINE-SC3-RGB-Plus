@@ -12,8 +12,10 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+  <Import Project="..\..\Version.props" />
   <ItemGroup>
     <ProjectReference Include="..\SC3FirmwareTool.Core\SC3FirmwareTool.Core.csproj" />
     <Content Include="..\..\firmware\candidates\mod14\SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva" Link="Firmware\SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\firmware\recovery\SC3_V22_recovery.MVA" Link="Firmware\SC3_V22_recovery.MVA" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

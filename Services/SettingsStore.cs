@@ -44,6 +44,11 @@ public static class SettingsStore
                 settings.StartWithWindows = true;
             }
 
+            if (!root.TryGetProperty("AutomaticallyCheckForUpdates", out _))
+            {
+                settings.AutomaticallyCheckForUpdates = true;
+            }
+
             return settings;
         }
         catch

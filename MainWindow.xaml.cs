@@ -1,6 +1,7 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,6 +11,7 @@ using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using SC3RGBController.Models;
 using SC3RGBController.Services;
+using SC3RGBController.Services.Updates;
 using SC3RGBController.UI.Controls;
 using SC3RGBController.UI;
 using SC3FirmwareTool.Core;
@@ -18,8 +20,16 @@ namespace SC3RGBController;
 
 public partial class MainWindow : Window
 {
+    private enum MainPage
+    {
+        Lighting,
+        Settings
+    }
+
+    private MainPage _currentPage = MainPage.Lighting;
     private readonly HidDeviceClient _hid = new();
     private readonly FirmwareService _firmwareService = new();
+    private readonly ApplicationUpdateService _applicationUpdateService = ApplicationUpdateService.CreateDefault(AppVersionInfo.Current);
     private readonly object _colorGate = new();
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _settingsSaveTimer;
@@ -28,6 +38,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ColorPreset> _presets;
     private CancellationTokenSource? _streamCancellation;
     private CancellationTokenSource? _applyFeedbackCancellation;
+    private CancellationTokenSource? _updateDownloadCancellation;
     private Task? _streamTask;
     private Color _selectedColor = Color.FromRgb(255, 120, 0);
     private Color _appliedColor = Color.FromRgb(255, 120, 0);
@@ -44,6 +55,13 @@ public partial class MainWindow : Window
     private bool _firmwareChecked;
     private bool _modInstalled;
     private DeviceStatus? _firmwareStatus;
+    private bool _firmwareOperationActive;
+    private bool _recoveryModeDetected;
+    private bool _recoveryPromptShown;
+    private bool _updateCheckInProgress;
+    private UpdateCandidate? _availableUpdate;
+    private DownloadedUpdate? _downloadedUpdate;
+    private bool _applicationUpdateInstalling;
     private string? _selectedPresetId;
     private readonly bool _isStartupLaunch = Environment.GetCommandLineArgs()
         .Any(argument => string.Equals(argument, "--startup", StringComparison.OrdinalIgnoreCase));
@@ -53,6 +71,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         _settings = SettingsStore.Load();
         StartupManager.SetEnabled(_settings.StartWithWindows);
+        AppVersionText.Text = $"App: {AppVersionInfo.Current}";
+        IntegratedSettingsView.ConfigureUpdates(AppVersionInfo.DisplayVersion, _settings.AutomaticallyCheckForUpdates);
         _selectedEffect = ParseLightingEffect(_settings.Effect);
         _settings.Effect = _selectedEffect.ToString();
         EnsureEditablePresets();
@@ -81,6 +101,13 @@ public partial class MainWindow : Window
         _liveApplyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         _liveApplyTimer.Tick += (_, _) =>
         {
+            if (_firmwareOperationActive)
+            {
+                _liveApplyPending = false;
+                _liveApplyTimer.Stop();
+                return;
+            }
+
             if (!_liveApplyPending)
             {
                 _liveApplyTimer.Stop();
@@ -115,6 +142,7 @@ public partial class MainWindow : Window
         RefreshEffectVisualState();
         RefreshPresetVisualState();
         UpdateLightingVisual();
+        ShowMainPage(MainPage.Lighting);
         SaveSettingsNow();
 
         if (_isStartupLaunch)
@@ -124,6 +152,8 @@ public partial class MainWindow : Window
 
         _statusTimer.Start();
         await RefreshDeviceStatusAsync();
+        if (_settings.AutomaticallyCheckForUpdates)
+            _ = CheckForApplicationUpdatesAsync(userInitiated: false);
     }
 
     private async void Window_Closing(object? sender, CancelEventArgs e)
@@ -133,6 +163,7 @@ public partial class MainWindow : Window
         _liveApplyTimer.Stop();
         _applyFeedbackCancellation?.Cancel();
         SaveSettingsNow();
+        _updateDownloadCancellation?.Cancel();
         await StopStreamingAsync();
         _hid.Dispose();
     }
@@ -339,6 +370,7 @@ public partial class MainWindow : Window
 
     private async void ReconnectButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_firmwareOperationActive) return;
         ShowInlineStatus("Reconnecting…");
         if (_isStreaming) await StopStreamingAsync();
         _stopRestoredStockMode = false;
@@ -348,6 +380,14 @@ public partial class MainWindow : Window
 
     private void LightingButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_firmwareOperationActive) return;
+        ShowMainPage(MainPage.Lighting);
+        ToggleLightingState();
+    }
+
+    private void ToggleLightingState()
+    {
+        if (_firmwareOperationActive) return;
         _settings.IsLightingEnabled = !_settings.IsLightingEnabled;
         UpdateLightingVisual();
         SaveSettingsNow();
@@ -398,6 +438,7 @@ public partial class MainWindow : Window
 
     private void ApplySelectedColor()
     {
+        if (_firmwareOperationActive) return;
         if (!_firmwareChecked || !_modInstalled)
         {
             ShowInlineStatus("RGB setup required");
@@ -418,7 +459,7 @@ public partial class MainWindow : Window
 
     private void StartStreaming()
     {
-        if (!_firmwareChecked || !_modInstalled) return;
+        if (_firmwareOperationActive || !_firmwareChecked || !_modInstalled) return;
         if (_streamTask is { IsCompleted: false })
         {
             ShowInlineStatus(_settings.IsLightingEnabled
@@ -510,7 +551,7 @@ public partial class MainWindow : Window
 
     private async Task RefreshDeviceStatusAsync()
     {
-        if (_isStreaming) return;
+        if (_isStreaming || _firmwareOperationActive) return;
 
         (bool connected, string detail) = await Task.Run(() =>
         {
@@ -518,39 +559,56 @@ public partial class MainWindow : Window
             return (connected, detail);
         });
         bool newlyConnected = connected && !_isConnected;
-        UpdateConnectionVisual(connected, detail);
 
+        RestoreDetection? restoreDetection = null;
         if (!connected)
+            restoreDetection = await Task.Run(_firmwareService.DetectRestore);
+
+        _recoveryModeDetected = restoreDetection?.RecoveryMode == true;
+        if (_recoveryModeDetected)
         {
             _firmwareChecked = false;
             _modInstalled = false;
+            _firmwareStatus = restoreDetection!.NormalStatus;
+            FirmwareVersionText.Text = "FW: Recovery Mode";
+            FirmwareSetupButton.Visibility = Visibility.Collapsed;
+        }
+        else if (!connected)
+        {
+            _recoveryPromptShown = false;
+            _firmwareChecked = false;
+            _modInstalled = false;
             _firmwareStatus = null;
+            FirmwareVersionText.Text = "FW: Not detected";
             FirmwareSetupButton.Visibility = Visibility.Collapsed;
         }
         else if (!_firmwareChecked)
         {
+            _recoveryPromptShown = false;
             DeviceStatus firmware = await Task.Run(_firmwareService.Detect);
             _firmwareChecked = true;
             _modInstalled = firmware.ModInstalled;
             _firmwareStatus = firmware;
-            FirmwareVersionText.Text = firmware.ModInstalled ? "FW: RGB+ Mod 1.4" : "FW: Stock / unverified";
+            FirmwareVersionText.Text = firmware.ModInstalled ? "FW: RGB+ Mod 1.4" : "FW: Stock V22";
             FirmwareSetupButton.Visibility = firmware.ValidatedProfile && !firmware.ModInstalled
                 ? Visibility.Visible : Visibility.Collapsed;
-            DeviceHealthDetail.Text = firmware.ModInstalled ? "RGB+ Mod 1.4 ready." : firmware.Message;
         }
 
         UpdateConnectionVisual(connected, detail);
 
+        if (_recoveryModeDetected && !_recoveryPromptShown)
+        {
+            _recoveryPromptShown = true;
+            _ = Dispatcher.BeginInvoke(async () => await ShowRecoveryModePromptAsync());
+            return;
+        }
+
         if (connected && _modInstalled && (newlyConnected || !_stopRestoredStockMode))
         {
             if (_settings.IsLightingEnabled)
-            {
                 QueueLiveApply();
-            }
             else
-            {
                 ApplySelectedColor();
-            }
         }
     }
 
@@ -564,62 +622,372 @@ public partial class MainWindow : Window
             FooterConnectionText.BeginAnimation(OpacityProperty, fade);
         }
         _isConnected = connected;
-        Brush stateBrush = (Brush)FindResource(connected ? "ConnectedBrush" : "DisconnectedBrush");
-        bool rgbReady = connected && _firmwareChecked && _modInstalled && _firmwareStatus?.ValidatedProfile == true;
+        bool recovery = _recoveryModeDetected;
+        Brush stateBrush = (Brush)FindResource(connected ? "ConnectedBrush" : recovery ? "MutedBrush" : "DisconnectedBrush");
+        bool rgbReady = connected && !_firmwareOperationActive && _firmwareChecked && _modInstalled && _firmwareStatus?.ValidatedProfile == true;
         Brush readyBrush = (Brush)FindResource(rgbReady ? "ConnectedBrush" : "MutedBrush");
         StatusDot.Fill = stateBrush;
         DeviceHealthIcon.Stroke = stateBrush;
-        SidebarConnectionText.Text = connected ? "Connected" : "Disconnected";
+        DeviceHealthTitle.Text = recovery ? "SC3 Recovery Mode" : "Device Status";
+        SidebarConnectionText.Text = recovery ? "Recovery Mode" : connected ? "Connected" : "Disconnected";
         SidebarConnectionText.Foreground = stateBrush;
-        DeviceHealthDetail.Text = !connected ? "Device not detected." :
-            !_firmwareChecked ? "Checking firmware state…" :
-            _firmwareStatus?.ValidatedProfile == true && _modInstalled ? "RGB+ Mod 1.4 ready." :
-            _firmwareStatus?.ValidatedProfile == true ? "SC3 is working normally. RGB setup required." :
-            _firmwareStatus?.Message ?? "Firmware state is not verified.";
-        FooterConnectionText.Text = connected ? "Connected to FIFINE SC3" : "FIFINE SC3 disconnected";
+        DeviceHealthDetail.Text = recovery
+            ? "SC3 detected in recovery mode. A firmware update may not have completed."
+            : !connected ? "Device not detected."
+            : !_firmwareChecked ? "Checking firmware state…"
+            : _firmwareStatus?.ValidatedProfile == true && _modInstalled ? "RGB+ Mod 1.4 ready."
+            : _firmwareStatus?.ValidatedProfile == true ? "SC3 is working normally. RGB setup required."
+            : _firmwareStatus?.Message ?? "Firmware state is not verified.";
+        FooterConnectionText.Text = recovery ? "FIFINE SC3 recovery bootloader detected" : connected ? "Connected to FIFINE SC3" : "FIFINE SC3 disconnected";
         FooterConnectionText.Foreground = stateBrush;
-        FooterReadyText.Text = rgbReady ? "RGB Ready" : connected ? "RGB setup required" : "RGB unavailable";
+        FooterReadyText.Text = FirmwarePresentationPolicy.ReadyLabel(_firmwareStatus, recovery, _firmwareOperationActive);
         FooterReadyText.Foreground = readyBrush;
-        ApplyButton.IsEnabled = true; // Saving presets works while disconnected.
-        StopButton.IsEnabled = rgbReady || _isStreaming;
+        ApplyButton.IsEnabled = !_firmwareOperationActive; // Presets remain saved; output writes stay blocked during firmware operations.
+        StopButton.IsEnabled = !_firmwareOperationActive && (rgbReady || _isStreaming);
+        FooterReconnectButton.IsEnabled = !_firmwareOperationActive && !recovery;
+        LightingButton.IsEnabled = !_firmwareOperationActive && !recovery;
+        SettingsButton.IsEnabled = !_firmwareOperationActive;
     }
 
     private async void FirmwareSetupButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_firmwareOperationActive) return;
         MessageBoxResult answer = MessageBox.Show(this,
             "RGB control requires installing compatible firmware on your SC3.\n\nDo not disconnect the mixer during setup.",
             "Enable RGB Control", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;
 
-        _statusTimer.Stop();
-        await StopStreamingAsync();
-        _hid.Close();
-        _firmwareChecked = false;
-        _modInstalled = false;
-        _firmwareStatus = null;
-        UpdateConnectionVisual(_isConnected, "Firmware setup in progress");
-        FirmwareSetupButton.Visibility = Visibility.Collapsed;
-        ShowInlineStatus("Firmware setup in progress");
+        await BeginFirmwareOperationAsync("Firmware setup in progress");
         FirmwareSetupWindow progress = new(_firmwareService) { Owner = this };
         bool? success = progress.ShowDialog();
-        _firmwareChecked = false;
-        _statusTimer.Start();
-        await RefreshDeviceStatusAsync();
+        await EndFirmwareOperationAsync();
         if (success == true) ShowInlineStatus("RGB control ready");
         else if (progress.Outcome == UpdaterState.SetupFailedDeviceHealthy) ShowInlineStatus("RGB setup failed · SC3 is working normally");
         else if (progress.Outcome == UpdaterState.SetupFailedBootloaderAvailable) ShowInlineStatus("RGB setup incomplete · setup bootloader detected");
         else if (progress.Outcome == UpdaterState.RecoveryRequired) ShowInlineStatus("SC3 recovery required");
     }
 
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_firmwareOperationActive) return;
+        IntegratedSettingsView.SelectTroubleshooting();
+        ShowMainPage(MainPage.Settings);
+    }
+
+    private async void IntegratedSettingsView_RestoreRequested(object? sender, EventArgs e)
+    {
+        await RestoreOriginalFirmwareAsync();
+    }
+
+    private void IntegratedSettingsView_BackRequested(object? sender, EventArgs e)
+    {
+        if (_firmwareOperationActive) return;
+        ShowMainPage(MainPage.Lighting);
+    }
+
+    private async void IntegratedSettingsView_CheckForUpdatesRequested(object? sender, EventArgs e)
+    {
+        await CheckForApplicationUpdatesAsync(userInitiated: true);
+    }
+
+    private async void IntegratedSettingsView_UpdateNowRequested(object? sender, EventArgs e)
+    {
+        await DownloadApplicationUpdateAsync();
+    }
+
+    private void IntegratedSettingsView_CancelDownloadRequested(object? sender, EventArgs e)
+    {
+        _updateDownloadCancellation?.Cancel();
+    }
+
+    private async void IntegratedSettingsView_InstallAndRestartRequested(object? sender, EventArgs e)
+    {
+        await InstallApplicationUpdateAsync();
+    }
+
+    private void IntegratedSettingsView_AutomaticUpdateCheckChanged(object? sender, EventArgs e)
+    {
+        _settings.AutomaticallyCheckForUpdates = IntegratedSettingsView.AutomaticUpdateCheckEnabled;
+        SaveSettingsNow();
+    }
+
+    private async void UpdateBannerButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowMainPage(MainPage.Settings);
+        IntegratedSettingsView.SelectUpdates();
+        if (_availableUpdate is null)
+            await CheckForApplicationUpdatesAsync(userInitiated: true);
+        else if (_availableUpdate.HasIntegrityMetadata)
+            await DownloadApplicationUpdateAsync();
+    }
+
+    private void UpdateBannerLaterButton_Click(object sender, RoutedEventArgs e) => HideUpdateBanner();
+
+    private async Task CheckForApplicationUpdatesAsync(bool userInitiated)
+    {
+        if (_updateCheckInProgress || _applicationUpdateInstalling) return;
+        _updateCheckInProgress = true;
+
+        if (userInitiated)
+        {
+            ShowMainPage(MainPage.Settings);
+            IntegratedSettingsView.SelectUpdates();
+        }
+        IntegratedSettingsView.ShowUpdateChecking();
+
+        try
+        {
+            UpdateCheckResult result = await _applicationUpdateService.CheckForUpdatesAsync(AppVersionInfo.Current);
+            _availableUpdate = result.Candidate;
+            IntegratedSettingsView.ShowUpdateResult(result);
+
+            if (result.Candidate is not null)
+            {
+                UpdateBannerText.Text = $"Update available: v{result.Candidate.Version}";
+                FooterStatusPanel.Visibility = Visibility.Collapsed;
+                UpdateBanner.Visibility = Visibility.Visible;
+            }
+            else if (result.Status is UpdateCheckStatus.UpToDate or UpdateCheckStatus.NoReleases)
+            {
+                HideUpdateBanner();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (userInitiated) IntegratedSettingsView.ShowUpdateError("Update check cancelled");
+        }
+        catch
+        {
+            if (userInitiated) IntegratedSettingsView.ShowUpdateError("Unable to check for updates");
+        }
+        finally
+        {
+            _updateCheckInProgress = false;
+        }
+    }
+
+    private async Task DownloadApplicationUpdateAsync()
+    {
+        if (_firmwareOperationActive || _applicationUpdateInstalling) return;
+        UpdateCandidate? candidate = _availableUpdate;
+        if (candidate is null) return;
+
+        ShowMainPage(MainPage.Settings);
+        IntegratedSettingsView.SelectUpdates();
+        if (!candidate.HasIntegrityMetadata)
+        {
+            IntegratedSettingsView.ShowUpdateError("Update verification metadata is missing");
+            return;
+        }
+
+        _updateDownloadCancellation?.Cancel();
+        _updateDownloadCancellation?.Dispose();
+        _updateDownloadCancellation = new CancellationTokenSource();
+        CancellationToken token = _updateDownloadCancellation.Token;
+        _downloadedUpdate = null;
+        HideUpdateBanner();
+        IntegratedSettingsView.ShowDownloadStarted();
+        Progress<int> progress = new(percent => IntegratedSettingsView.SetDownloadProgress(percent));
+
+        try
+        {
+            _downloadedUpdate = await _applicationUpdateService.DownloadAndVerifyAsync(candidate, progress, token);
+            IntegratedSettingsView.ShowUpdateReady(candidate.Version);
+        }
+        catch (OperationCanceledException)
+        {
+            IntegratedSettingsView.ShowUpdateError("Download cancelled");
+        }
+        catch (UpdateVerificationException)
+        {
+            IntegratedSettingsView.ShowUpdateError("Update verification failed");
+        }
+        catch (HttpRequestException)
+        {
+            IntegratedSettingsView.ShowUpdateError("Update download failed");
+        }
+        catch
+        {
+            IntegratedSettingsView.ShowUpdateError("Update download failed");
+        }
+        finally
+        {
+            _updateDownloadCancellation?.Dispose();
+            _updateDownloadCancellation = null;
+        }
+    }
+
+    private async Task InstallApplicationUpdateAsync()
+    {
+        if (_firmwareOperationActive || _applicationUpdateInstalling || _downloadedUpdate is null) return;
+        _applicationUpdateInstalling = true;
+        IntegratedSettingsView.ShowInstalling();
+        SaveSettingsNow();
+        _liveApplyPending = false;
+        _liveApplyTimer.Stop();
+        _statusTimer.Stop();
+        await StopStreamingAsync();
+        _hid.Close();
+
+        try
+        {
+            await _applicationUpdateService.LaunchInstallerAsync(_downloadedUpdate, _settings.StartWithWindows);
+            Application.Current.Shutdown();
+        }
+        catch (UpdateVerificationException)
+        {
+            _applicationUpdateInstalling = false;
+            _statusTimer.Start();
+            IntegratedSettingsView.ShowUpdateError("Update verification failed");
+            await RefreshDeviceStatusAsync();
+        }
+        catch
+        {
+            _applicationUpdateInstalling = false;
+            _statusTimer.Start();
+            IntegratedSettingsView.ShowUpdateError("Unable to start the update installer");
+            await RefreshDeviceStatusAsync();
+        }
+    }
+
+    private void HideUpdateBanner()
+    {
+        UpdateBanner.Visibility = Visibility.Collapsed;
+        FooterStatusPanel.Visibility = Visibility.Visible;
+    }
+
+    private void ShowMainPage(MainPage page)
+    {
+        _currentPage = page;
+        RgbControlView.Visibility = page == MainPage.Lighting ? Visibility.Visible : Visibility.Collapsed;
+        IntegratedSettingsView.Visibility = page == MainPage.Settings ? Visibility.Visible : Visibility.Collapsed;
+        RefreshMainNavigationVisuals();
+    }
+
+    private void RefreshMainNavigationVisuals()
+    {
+        Brush activeBrush = (Brush)FindResource("ConnectedBrush");
+        Brush inactiveBrush = new SolidColorBrush(Color.FromRgb(38, 38, 38));
+        Brush activeBackground = new SolidColorBrush(Color.FromRgb(21, 27, 23));
+
+        bool lightingOn = _settings.IsLightingEnabled;
+        bool settingsActive = _currentPage == MainPage.Settings;
+        LightingButton.BorderBrush = lightingOn ? activeBrush : inactiveBrush;
+        LightingButton.Background = lightingOn ? activeBackground : Brushes.Transparent;
+        LightingTitleText.Foreground = lightingOn ? activeBrush : (Brush)FindResource("TextBrush");
+        SettingsButton.BorderBrush = settingsActive ? activeBrush : inactiveBrush;
+        SettingsButton.Background = settingsActive ? activeBackground : Brushes.Transparent;
+    }
+
+    private async Task RestoreOriginalFirmwareAsync()
+    {
+        if (_firmwareOperationActive) return;
+        await BeginFirmwareOperationAsync("Preparing original firmware restore");
+
+        bool success = false;
+        UpdaterState outcome = UpdaterState.Idle;
+        try
+        {
+            RestoreDetection detection = await Task.Run(_firmwareService.DetectRestore);
+            if (!detection.CanRestore)
+            {
+                MessageBox.Show(this, detection.Message, "Restore Original Firmware", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Full preflight validates exact device state, package SHA/MVA layout,
+            // transition plan, transfer/ACK/finalization and verification plan.
+            // It performs no bootloader-enter, erase, firmware-write or finalize command.
+            await Task.Run(() => _firmwareService.RestoreStockDryRun());
+
+            RestoreConfirmationWindow confirmation = new() { Owner = this };
+            if (confirmation.ShowDialog() != true)
+            {
+                ShowInlineStatus("Restore cancelled");
+                return;
+            }
+
+            FirmwareSetupWindow progress = new(_firmwareService, FirmwareWindowMode.RestoreStock) { Owner = this };
+            success = progress.ShowDialog() == true;
+            outcome = progress.Outcome;
+            if (outcome == UpdaterState.RestoreFailedBootloaderAvailable) _recoveryPromptShown = true;
+            if (success)
+                _stopRestoredStockMode = true;
+        }
+        catch (Exception ex)
+        {
+            outcome = ex is FirmwareUpdateException firmwareError ? firmwareError.Outcome : UpdaterState.Failed;
+            if (outcome == UpdaterState.RestoreFailedBootloaderAvailable) _recoveryPromptShown = true;
+            MessageBox.Show(this, ex.Message, "Restore Original Firmware", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            await EndFirmwareOperationAsync();
+        }
+
+        if (success)
+        {
+            MessageBox.Show(this,
+                "SC3 restored successfully\n\nOriginal firmware is installed.",
+                "Restore Original Firmware", MessageBoxButton.OK, MessageBoxImage.Information);
+            ShowInlineStatus("RGB setup required");
+            return;
+        }
+
+        if (outcome == UpdaterState.RestoreFailedDeviceHealthy)
+            ShowInlineStatus("Restore failed, but your SC3 is working normally.");
+        else if (outcome == UpdaterState.RestoreFailedBootloaderAvailable)
+        {
+            ShowInlineStatus("SC3 is still in recovery mode.");
+            _recoveryPromptShown = true;
+            await ShowRecoveryModePromptAsync();
+        }
+        else if (outcome == UpdaterState.RestoreRecoveryRequired)
+            ShowInlineStatus("SC3 recovery is required");
+    }
+
+    private async Task BeginFirmwareOperationAsync(string status)
+    {
+        _firmwareOperationActive = true;
+        _statusTimer.Stop();
+        _liveApplyPending = false;
+        _liveApplyTimer.Stop();
+        await StopStreamingAsync();
+        _hid.Close();
+        _firmwareChecked = false;
+        _modInstalled = false;
+        _firmwareStatus = null;
+        FirmwareSetupButton.Visibility = Visibility.Collapsed;
+        UpdateConnectionVisual(_isConnected, status);
+        ShowInlineStatus(status);
+    }
+
+    private async Task EndFirmwareOperationAsync()
+    {
+        _firmwareOperationActive = false;
+        _firmwareChecked = false;
+        _modInstalled = false;
+        _firmwareStatus = null;
+        _statusTimer.Start();
+        await RefreshDeviceStatusAsync();
+    }
+
+    private async Task ShowRecoveryModePromptAsync()
+    {
+        if (_firmwareOperationActive || !_recoveryModeDetected) return;
+        RecoveryModeWindow recovery = new() { Owner = this };
+        if (recovery.ShowDialog() == true)
+            await RestoreOriginalFirmwareAsync();
+    }
     private void UpdateLightingVisual()
     {
         bool on = _settings.IsLightingEnabled;
         Brush brush = (Brush)FindResource(on ? "ConnectedBrush" : "MutedBrush");
         LightingIconPath.Stroke = brush;
-        LightingTitleText.Text = on ? "Lighting" : "Lighting Off";
+        LightingTitleText.Text = "Lighting";
         LightingDetailText.Text = on ? "RGB lighting is on." : "RGB lighting is disabled.";
         LightingDetailText.Foreground = brush;
-        LightingButton.Opacity = on ? 1 : 0.7;
+        RefreshMainNavigationVisuals();
         UpdateMixerPreview();
     }
 
@@ -653,7 +1021,7 @@ public partial class MainWindow : Window
 
     private void QueueLiveApply()
     {
-        if (!_settings.IsLightingEnabled || !_firmwareChecked || !_modInstalled) return;
+        if (_firmwareOperationActive || !_settings.IsLightingEnabled || !_firmwareChecked || !_modInstalled) return;
         _stopRestoredStockMode = false;
         _liveApplyPending = true;
         if (!_liveApplyTimer.IsEnabled) _liveApplyTimer.Start();

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Services\Updates\SemanticVersion.cs" Link="Updates\SemanticVersion.cs" />
+    <Compile Include="..\..\Services\Updates\AppVersionInfo.cs" Link="Updates\AppVersionInfo.cs" />
+    <Compile Include="..\..\Services\Updates\UpdateModels.cs" Link="Updates\UpdateModels.cs" />
+    <Compile Include="..\..\Services\Updates\ApplicationUpdateService.cs" Link="Updates\ApplicationUpdateService.cs" />
+    <Compile Include="..\..\Models\AppSettings.cs" Link="Models\AppSettings.cs" />
+    <Compile Include="..\..\Models\LightingEffect.cs" Link="Models\LightingEffect.cs" />
+    <Compile Include="..\..\Models\ColorPreset.cs" Link="Models\ColorPreset.cs" />
+  </ItemGroup>
+</Project>

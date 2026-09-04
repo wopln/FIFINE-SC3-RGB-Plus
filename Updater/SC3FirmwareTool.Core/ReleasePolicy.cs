@@ -24,6 +24,18 @@ public static class ReleasePolicy
     public const string ValidatedBootHidInstance = "8&2b96d23b&0&0000";
 }
 
+public static class StockRecoveryPolicy
+{
+    public const string FirmwareFileName = "SC3_V22_recovery.MVA";
+    public const string FirmwareSha256 = "01a282431c3d82ffd64aa7095f8e151893f459094e2c5ee08010dba430cffcdd";
+    public const long FirmwareSize = 1_726_821;
+    public const string BuildId = "STOCK-V22";
+    public const string Confirmation = "SC3-STOCK-V22-RECOVERY";
+
+    public static bool IsConfirmed(string? value) =>
+        string.Equals(value, Confirmation, StringComparison.Ordinal);
+}
+
 public static class VendorTransferTiming
 {
     // Proven from the extracted vendor helper erase loop:
@@ -102,7 +114,8 @@ public enum UpdaterState
     WaitingForBootloader, BootloaderConnected, PreparingUpdate, Erasing,
     Transferring, Finalizing, WaitingForReboot, VerifyingDevice,
     Success, Failed, SetupFailedDeviceHealthy, SetupFailedBootloaderAvailable,
-    RecoveryRequired, SetupSucceeded
+    RecoveryRequired, SetupSucceeded, RestoreFailedDeviceHealthy,
+    RestoreFailedBootloaderAvailable, RestoreRecoveryRequired, RestoreSucceeded
 }
 
 public sealed record UpdateProgress(UpdaterState State, int Percent, string Message,
@@ -115,6 +128,33 @@ public sealed record DeviceStatus(bool Present, bool ValidatedProfile, bool ModI
 public sealed record DryRunResult(bool Passed, int DataBlocks, int SectorAcks,
     int OutboundReports, string FirmwareSha256, string Summary);
 
+public enum RestoreStartMode
+{
+    Normal,
+    Bootloader
+}
+
+public sealed record RestoreDetection(bool CanRestore, RestoreStartMode? StartMode,
+    bool RecoveryMode, string Message, DeviceStatus NormalStatus, bool BootloaderPresent);
+
+public sealed record RestoreDryRunResult(bool Passed, RestoreStartMode StartMode,
+    int DataBlocks, int SectorAcks, int OutboundReports, string FirmwareSha256,
+    string Summary);
+
+public static class RestoreFlowPolicy
+{
+    public static RestoreDetection ClassifyStart(DeviceStatus normal, bool bootloaderPresent)
+    {
+        if (normal.Present && bootloaderPresent)
+            return new(false, null, false, "Ambiguous SC3 state: normal device and recovery bootloader are both present.", normal, true);
+        if (normal.ValidatedProfile && !bootloaderPresent)
+            return new(true, RestoreStartMode.Normal, false, "Validated SC3 ready for stock restore.", normal, false);
+        if (!normal.Present && bootloaderPresent)
+            return new(true, RestoreStartMode.Bootloader, true, "SC3 detected in recovery mode.", normal, true);
+        return new(false, null, false, normal.Message, normal, bootloaderPresent);
+    }
+}
+
 public static class FirmwareOutcomeClassifier
 {
     public static UpdaterState ClassifyPostFailure(bool destructive, DeviceStatus normal, bool bootPresent)
@@ -124,6 +164,33 @@ public static class FirmwareOutcomeClassifier
         if (bootPresent && !normal.Present)
             return UpdaterState.SetupFailedBootloaderAvailable;
         return destructive ? UpdaterState.RecoveryRequired : UpdaterState.Failed;
+    }
+
+    public static UpdaterState ClassifyRestorePostFailure(bool destructive, DeviceStatus normal, bool bootPresent)
+    {
+        if (normal.ValidatedProfile && !bootPresent)
+            return UpdaterState.RestoreFailedDeviceHealthy;
+        if (bootPresent && !normal.Present)
+            return UpdaterState.RestoreFailedBootloaderAvailable;
+        return destructive ? UpdaterState.RestoreRecoveryRequired : UpdaterState.Failed;
+    }
+}
+
+public static class StockVerificationPolicy
+{
+    public static bool IsVerifiedStock(DeviceStatus normal, bool bootloaderPresent) =>
+        normal.Present && normal.ValidatedProfile && !normal.ModInstalled && !bootloaderPresent;
+}
+
+public static class FirmwarePresentationPolicy
+{
+    public static string ReadyLabel(DeviceStatus? normal, bool recoveryMode, bool operationActive)
+    {
+        if (operationActive) return "Firmware operation in progress";
+        if (recoveryMode) return "Recovery mode";
+        if (normal?.ValidatedProfile == true && normal.ModInstalled) return "RGB Ready";
+        if (normal?.ValidatedProfile == true) return "RGB setup required";
+        return "RGB unavailable";
     }
 }
 

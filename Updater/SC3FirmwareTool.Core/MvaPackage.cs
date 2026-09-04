@@ -21,15 +21,20 @@ public sealed class MvaPackage
         Metadata = metadata; Sha256 = sha256;
     }
 
-    public static MvaPackage LoadApproved(string path)
+    public static MvaPackage LoadApproved(string path) =>
+        LoadExpected(path, ReleasePolicy.FirmwareFileName, ReleasePolicy.FirmwareSha256, ReleasePolicy.FirmwareSize, "RGB+ Mod 1.4");
+
+    public static MvaPackage LoadStockRecovery(string path) =>
+        LoadExpected(path, StockRecoveryPolicy.FirmwareFileName, StockRecoveryPolicy.FirmwareSha256, StockRecoveryPolicy.FirmwareSize, "Stock V22 recovery");
+
+    private static MvaPackage LoadExpected(string path, string expectedFileName, string expectedSha256, long expectedSize, string packageLabel)
     {
-        if (!string.Equals(Path.GetFileName(path), ReleasePolicy.FirmwareFileName,
-                StringComparison.Ordinal))
-            throw new FirmwareUpdateException("Approved firmware filename mismatch.");
+        if (!string.Equals(Path.GetFileName(path), expectedFileName, StringComparison.Ordinal))
+            throw new FirmwareUpdateException($"{packageLabel} firmware filename mismatch.");
         byte[] data = File.ReadAllBytes(path);
         string sha = Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
-        if (data.LongLength != ReleasePolicy.FirmwareSize || sha != ReleasePolicy.FirmwareSha256)
-            throw new FirmwareUpdateException("Approved firmware size or SHA-256 mismatch.");
+        if (data.LongLength != expectedSize || sha != expectedSha256)
+            throw new FirmwareUpdateException($"{packageLabel} firmware size or SHA-256 mismatch.");
         if (!data.AsSpan(0, 5).SequenceEqual(Convert.FromHexString("4D56B15804")))
             throw new FirmwareUpdateException("MVA target/header mismatch.");
         ushort storedCrc = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(data.Length - 4, 2));
