@@ -7,49 +7,39 @@ control to the FIFINE AmpliGame SC3 mixer.
 
 ## Features
 
-- Custom RGB colors
-- Color picker
-- Brightness control
-- Presets
-- Lighting On/Off
-- RGB effects
-- Automatic SC3 detection
-- Start with Windows
-- Restore RGB state on startup
-- Automatic RGB firmware setup for supported SC3 units
-- Original SC3 button/status lighting preserved
+- Custom RGB colors, color picker, and brightness control
+- Saved presets with reusable names and settings
+- Static, Breathing, Rainbow, Pulse, and Color Cycle effects
+- Adjustable 1–100% speed for animated effects, remembered per effect
+- Lighting On/Off and original SC3 button/status lighting preservation
+- Integrated Settings for updates and troubleshooting
+- Automatic application updates through GitHub Releases
+- Safe Restore Original Firmware and SC3 Recovery Mode support
+- Automatic SC3 detection, reconnect handling, and Start with Windows
 
 ## Supported hardware
 
-FIFINE AmpliGame SC3.
-
-This beta has been validated on the currently supported SC3 profile. The
-included firmware modification is intended only for the FIFINE AmpliGame SC3.
+FIFINE AmpliGame SC3. The included RGB firmware modification is intended only
+for the supported SC3 device profile.
 
 ## Installation
 
-1. Download the latest `Setup.exe` from Releases.
+1. Download `FIFINE-SC3-RGB-Plus-2.4.0-Setup.exe` from [Releases](../../releases).
 2. Install FIFINE SC3 RGB+.
 3. Connect the FIFINE SC3.
-4. Launch the application.
-5. If RGB setup is required, click **Enable RGB Control**.
-6. Keep the SC3 connected until setup completes.
-7. After reboot, RGB controls become available.
+4. Open the application and select **Enable RGB Control** if RGB setup is required.
 
-Firmware setup modifies the SC3 firmware. Do not disconnect the mixer while
-firmware setup is running.
+The app handles firmware setup and recovery from within the application. Normal
+users do not need to select MVA files or use a vendor updater manually. Do not
+disconnect the SC3 while firmware setup or restoration is in progress.
 
-The beta installer is currently unsigned, so Windows SmartScreen may display a
-warning.
+## Firmware and recovery
 
-## Firmware setup
-
-The installer bundles the exact validated Mod 1.4 firmware used by the app.
-When **Enable RGB Control** is selected, the app verifies the firmware by
-SHA-256 before installation, runs the native updater, waits for the SC3 to
-reboot, and verifies the Mod 1.4 attestation before reporting RGB Ready.
-
-Users do not need to manually download or flash firmware files.
+**Enable RGB Control** installs the validated RGB+ firmware only after package
+validation. **Settings → Troubleshooting → Restore Original Firmware** restores
+validated Stock V22 firmware, removes RGB+ support, and returns the app to
+**RGB setup required**. If the SC3 is already in Recovery Mode, the app detects
+it and offers the same safe restore path.
 
 Firmware redistribution scope is documented in
 [FIRMWARE_PERMISSION.md](FIRMWARE_PERMISSION.md).
@@ -58,24 +48,21 @@ Firmware redistribution scope is documented in
 
 Requirements: Windows, .NET 8 SDK, and Inno Setup 6.
 
-Run:
-
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
 ```
 
-The script builds the Windows app, native updater, and installer entirely from
-this repository tree.
+The script builds the Windows app, native updater, installer, update manifest,
+and SHA-256 checksum from this repository tree.
 
 ## License
 
 Project source code is available under the [MIT License](LICENSE). The bundled
-modified SC3 firmware is distributed under the permission documented above and
-is not claimed as MIT-licensed project source.
+modified SC3 firmware is distributed under the documented permission and is not
+claimed as MIT-licensed project source.
 
-## Unofficial project disclaimer
+## Unofficial community project
 
-FIFINE SC3 RGB+ is an independent community project and is not affiliated with,
-endorsed by, or supported by FIFINE.
-
-FIFINE and AmpliGame are trademarks of their respective owner.
+FIFINE SC3 RGB+ is an unofficial community project and is not affiliated with
+or endorsed by FIFINE. FIFINE and AmpliGame are trademarks of their respective
+owner.

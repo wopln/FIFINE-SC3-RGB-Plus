@@ -23,7 +23,8 @@ List<(string Name, Func<Task> Run)> tests =
     ("network failure is graceful", NetworkFailureIsGraceful),
     ("settings survive update simulation", SettingsSurviveUpdateSimulation),
     ("update simulation never invokes firmware updater", UpdateSimulationNeverInvokesFirmwareUpdater),
-    ("local beta update simulation", LocalBetaUpdateSimulation)
+    ("local beta update simulation", LocalBetaUpdateSimulation),
+    ("effect speed behavior", EffectSpeedBehavior)
 ];
 
 int failures = 0;
@@ -174,6 +175,22 @@ static async Task LocalBetaUpdateSimulation()
     await service.LaunchInstallerAsync(download, false);
     Assert(launcher.Launches == 1 && launcher.LastStartWithWindows == false);
     File.Delete(download.InstallerPath);
+}
+
+static Task EffectSpeedBehavior()
+{
+    Assert(!EffectSpeedPolicy.SupportsSpeed(LightingEffect.Static));
+    LightingEffect[] animated = [LightingEffect.Breathing, LightingEffect.Rainbow, LightingEffect.Pulse, LightingEffect.ColorCycle];
+    foreach (LightingEffect effect in animated) Assert(EffectSpeedPolicy.SupportsSpeed(effect));
+    Assert(EffectSpeedPolicy.Normalize(-1) == 1 && EffectSpeedPolicy.Normalize(101) == 100);
+    Assert(Math.Abs(EffectSpeedPolicy.CyclesPerSecond(LightingEffect.Rainbow, 50) - EffectSpeedPolicy.LegacyCyclesPerSecond) < 0.0001);
+    foreach (LightingEffect effect in animated) Assert(EffectSpeedPolicy.CyclesPerSecond(effect, 100) > EffectSpeedPolicy.CyclesPerSecond(effect, 50) && EffectSpeedPolicy.CyclesPerSecond(effect, 50) > EffectSpeedPolicy.CyclesPerSecond(effect, 10) && EffectSpeedPolicy.CyclesPerSecond(effect, 100) <= 0.95);
+    AppSettings settings = new() { BreathingSpeed = 30, RainbowSpeed = 80, PulseSpeed = 55, ColorCycleSpeed = 70 };
+    AppSettings restored = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
+    Assert(restored.BreathingSpeed == 30 && restored.RainbowSpeed == 80 && restored.PulseSpeed == 55 && restored.ColorCycleSpeed == 70);
+    AppSettings oldSettings = JsonSerializer.Deserialize<AppSettings>("{\"Color\":\"#FF7800\",\"Brightness\":100}")!;
+    Assert(oldSettings.BreathingSpeed == 50 && oldSettings.RainbowSpeed == 50 && oldSettings.PulseSpeed == 50 && oldSettings.ColorCycleSpeed == 50);
+    return Task.CompletedTask;
 }
 
 static bool NoFirmwareUpdateWasInvoked() => true; // This isolated application-update test project has no firmware-core reference.

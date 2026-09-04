@@ -28,6 +28,18 @@ public sealed class AppSettings
     [JsonPropertyName("Effect")]
     public string Effect { get; set; } = nameof(LightingEffect.Static);
 
+    [JsonPropertyName("BreathingSpeed")]
+    public int BreathingSpeed { get; set; } = EffectSpeedPolicy.DefaultSpeed;
+
+    [JsonPropertyName("RainbowSpeed")]
+    public int RainbowSpeed { get; set; } = EffectSpeedPolicy.DefaultSpeed;
+
+    [JsonPropertyName("PulseSpeed")]
+    public int PulseSpeed { get; set; } = EffectSpeedPolicy.DefaultSpeed;
+
+    [JsonPropertyName("ColorCycleSpeed")]
+    public int ColorCycleSpeed { get; set; } = EffectSpeedPolicy.DefaultSpeed;
+
     public string? SelectedPresetId { get; set; }
 
     [JsonPropertyName("StartWithWindows")]

@@ -49,6 +49,11 @@ public static class SettingsStore
                 settings.AutomaticallyCheckForUpdates = true;
             }
 
+            settings.BreathingSpeed = EffectSpeedPolicy.Normalize(settings.BreathingSpeed);
+            settings.RainbowSpeed = EffectSpeedPolicy.Normalize(settings.RainbowSpeed);
+            settings.PulseSpeed = EffectSpeedPolicy.Normalize(settings.PulseSpeed);
+            settings.ColorCycleSpeed = EffectSpeedPolicy.Normalize(settings.ColorCycleSpeed);
+
             return settings;
         }
         catch

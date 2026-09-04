@@ -44,8 +44,8 @@ public partial class MainWindow : Window
     private Color _appliedColor = Color.FromRgb(255, 120, 0);
     private LightingEffect _selectedEffect = LightingEffect.Static;
     private DateTime _effectStartedAt = DateTime.UtcNow;
-    private const double EffectSpeed = 0.55; // medium speed, kept intentionally UI-free
     private bool _syncingFields;
+    private bool _syncingEffectSpeed;
     private bool _isStreaming;
     private bool _isConnected;
     private bool _liveApplyPending;
@@ -268,6 +268,23 @@ public partial class MainWindow : Window
         RefreshPresetVisualState();
         QueueSettingsSave();
         QueueLiveApply();
+    }
+
+    private void EffectSpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (EffectSpeedText is null || _syncingEffectSpeed) return;
+
+        int speed = EffectSpeedPolicy.Normalize((int)Math.Round(e.NewValue));
+        EffectSpeedText.Text = $"{speed}%";
+        if (!IsLoaded || !EffectSpeedPolicy.SupportsSpeed(_selectedEffect)) return;
+
+        lock (_colorGate)
+        {
+            SetEffectSpeed(_selectedEffect, speed);
+        }
+        QueueSettingsSave();
+        // The existing stream reads this value every frame, so the change applies
+        // live without restarting a loop or adding another HID writer.
     }
 
     private void PresetCard_Click(object sender, RoutedEventArgs e)
@@ -1153,6 +1170,23 @@ public partial class MainWindow : Window
                 ? new DropShadowEffect { Color = borderColor, BlurRadius = 9, ShadowDepth = 0, Opacity = 0.28 }
                 : null;
         }
+
+        RefreshEffectSpeedVisualState();
+    }
+
+    private void RefreshEffectSpeedVisualState()
+    {
+        if (EffectSpeedPanel is null || EffectSpeedSlider is null || EffectSpeedText is null) return;
+
+        bool supported = EffectSpeedPolicy.SupportsSpeed(_selectedEffect);
+        EffectSpeedPanel.Visibility = supported ? Visibility.Visible : Visibility.Collapsed;
+        if (!supported) return;
+
+        int speed = GetEffectSpeed(_selectedEffect);
+        _syncingEffectSpeed = true;
+        EffectSpeedSlider.Value = speed;
+        EffectSpeedText.Text = $"{speed}%";
+        _syncingEffectSpeed = false;
     }
 
     private Color GetEffectColor(DateTime now)
@@ -1160,17 +1194,19 @@ public partial class MainWindow : Window
         Color baseColor;
         LightingEffect effect;
         DateTime startedAt;
+        int speed;
         lock (_colorGate)
         {
             baseColor = _selectedColor;
             effect = _selectedEffect;
             startedAt = _effectStartedAt;
+            speed = GetEffectSpeed(effect);
         }
 
         if (!_settings.IsLightingEnabled) return Colors.Black;
 
         double brightness = Math.Clamp(_settings.Brightness, 0, 100) / 100.0;
-        double cycle = (now - startedAt).TotalSeconds * EffectSpeed;
+        double cycle = (now - startedAt).TotalSeconds * EffectSpeedPolicy.CyclesPerSecond(effect, speed);
         Color effectColor = baseColor;
         double level = 1;
 
@@ -1209,6 +1245,27 @@ public partial class MainWindow : Window
 
     private static LightingEffect ParseLightingEffect(string? value) =>
         Enum.TryParse(value, ignoreCase: true, out LightingEffect effect) ? effect : LightingEffect.Static;
+
+    private int GetEffectSpeed(LightingEffect effect) => effect switch
+    {
+        LightingEffect.Breathing => EffectSpeedPolicy.Normalize(_settings.BreathingSpeed),
+        LightingEffect.Rainbow => EffectSpeedPolicy.Normalize(_settings.RainbowSpeed),
+        LightingEffect.Pulse => EffectSpeedPolicy.Normalize(_settings.PulseSpeed),
+        LightingEffect.ColorCycle => EffectSpeedPolicy.Normalize(_settings.ColorCycleSpeed),
+        _ => EffectSpeedPolicy.DefaultSpeed
+    };
+
+    private void SetEffectSpeed(LightingEffect effect, int speed)
+    {
+        speed = EffectSpeedPolicy.Normalize(speed);
+        switch (effect)
+        {
+            case LightingEffect.Breathing: _settings.BreathingSpeed = speed; break;
+            case LightingEffect.Rainbow: _settings.RainbowSpeed = speed; break;
+            case LightingEffect.Pulse: _settings.PulseSpeed = speed; break;
+            case LightingEffect.ColorCycle: _settings.ColorCycleSpeed = speed; break;
+        }
+    }
 
     private static Color BlendColors(Color first, Color second, double amount) => Color.FromRgb(
         (byte)Math.Round(first.R + (second.R - first.R) * amount),

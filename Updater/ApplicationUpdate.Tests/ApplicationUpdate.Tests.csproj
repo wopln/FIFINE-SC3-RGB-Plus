@@ -13,6 +13,7 @@
     <Compile Include="..\..\Services\Updates\ApplicationUpdateService.cs" Link="Updates\ApplicationUpdateService.cs" />
     <Compile Include="..\..\Models\AppSettings.cs" Link="Models\AppSettings.cs" />
     <Compile Include="..\..\Models\LightingEffect.cs" Link="Models\LightingEffect.cs" />
+    <Compile Include="..\..\Models\EffectSpeedPolicy.cs" Link="Models\EffectSpeedPolicy.cs" />
     <Compile Include="..\..\Models\ColorPreset.cs" Link="Models\ColorPreset.cs" />
   </ItemGroup>
 </Project>
