@@ -1,0 +1,7 @@
+FIFINE SC3 RGB+ 2.3.0 Beta
+
+This development release enables native RGB firmware installation only for the exact FIFINE SC3 hardware profile that has been physically validated.
+
+Unsupported or unvalidated SC3 revisions are refused before firmware installation begins.
+
+Firmware installation never starts automatically. You must choose Enable RGB Control and confirm the installation. Do not disconnect the mixer while firmware installation is running.
