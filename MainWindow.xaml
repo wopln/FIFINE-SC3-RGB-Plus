@@ -331,7 +331,7 @@
                 </Grid>
 
                 <!-- Footer -->
-                <Border Grid.Row="3" Style="{StaticResource CardStyle}" Margin="26,10,26,20" CornerRadius="14" Padding="20,0">
+                <Border Grid.Row="3" Style="{StaticResource CardStyle}" Margin="26,8,26,12" CornerRadius="14" Padding="20,0">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="16" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <TextBlock Text="⌁" Foreground="{StaticResource ConnectedBrush}" FontSize="25" VerticalAlignment="Center" />
@@ -343,12 +343,16 @@
                             <TextBlock x:Name="FooterReadyText" Text="Checking HID" Foreground="{StaticResource SecondaryTextBrush}" FontSize="13" />
                             <TextBlock x:Name="TransferStatusText" Text="" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="18,1,0,0" TextTrimming="CharacterEllipsis" MaxWidth="310" />
                         </StackPanel>
-                        <Border x:Name="UpdateBanner" Grid.Column="4" Visibility="Collapsed" Background="#101510" BorderBrush="{StaticResource ConnectedBrush}" BorderThickness="1" CornerRadius="9" Padding="11,6" Margin="0,5,12,5">
+                        <Border x:Name="UpdateBanner" Grid.Column="4" Visibility="Collapsed" Background="#101510" BorderBrush="{StaticResource ConnectedBrush}" BorderThickness="1" CornerRadius="10" Padding="12,5" Margin="0,4,12,4" MinHeight="44">
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <TextBlock x:Name="UpdateBannerText" Text="Update available" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                <Button Grid.Column="1" Content="Update" Height="30" MinWidth="72" Margin="12,0,8,0" Padding="10,4" Style="{StaticResource PremiumButton}" Background="#151B17" BorderBrush="{StaticResource ConnectedBrush}" Click="UpdateBannerButton_Click"/>
-                                <Button Grid.Column="2" Content="Later" Height="30" MinWidth="62" Padding="9,4" Style="{StaticResource PremiumButton}" Click="UpdateBannerLaterButton_Click"/>
+                                <Button Grid.Column="1" Content="Update Now" Height="32" MinWidth="98" Margin="12,0,8,0" Padding="12,4"
+                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center" FontSize="12" Style="{StaticResource PremiumButton}"
+                                        Background="#151B17" BorderBrush="{StaticResource ConnectedBrush}" FocusVisualStyle="{x:Null}" Click="UpdateBannerButton_Click"/>
+                                <Button Grid.Column="2" Content="Later" Height="32" MinWidth="72" Padding="11,4"
+                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center" FontSize="12" Style="{StaticResource PremiumButton}"
+                                        FocusVisualStyle="{x:Null}" Click="UpdateBannerLaterButton_Click"/>
                             </Grid>
                         </Border>
                         <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
