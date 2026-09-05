@@ -28,6 +28,9 @@ public partial class MainWindow : Window
 
     private MainPage _currentPage = MainPage.Lighting;
     private readonly HidDeviceClient _hid = new();
+    private readonly CustomButtonShortcutController _customButtons;
+    private readonly TrayCommandRouter _trayCommands = new();
+    private readonly SystemTrayService _tray;
     private readonly FirmwareService _firmwareService = new();
     private readonly ApplicationUpdateService _applicationUpdateService = ApplicationUpdateService.CreateDefault(AppVersionInfo.Current);
     private readonly object _colorGate = new();
@@ -55,6 +58,9 @@ public partial class MainWindow : Window
     private bool _firmwareChecked;
     private bool _modInstalled;
     private DeviceStatus? _firmwareStatus;
+    private Sc3FirmwareFlavor _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
+    private bool _finalMod15Capability;
+    private bool _firmwareUpdateOfferShown;
     private bool _firmwareOperationActive;
     private bool _recoveryModeDetected;
     private bool _recoveryPromptShown;
@@ -63,6 +69,9 @@ public partial class MainWindow : Window
     private DownloadedUpdate? _downloadedUpdate;
     private bool _applicationUpdateInstalling;
     private string? _selectedPresetId;
+    private bool _backgroundMode;
+    private bool _allowWindowClose;
+    private bool _exitInProgress;
     private readonly bool _isStartupLaunch = Environment.GetCommandLineArgs()
         .Any(argument => string.Equals(argument, "--startup", StringComparison.OrdinalIgnoreCase));
 
@@ -70,9 +79,21 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _settings = SettingsStore.Load();
-        StartupManager.SetEnabled(_settings.StartWithWindows);
+        UpdateStartupRegistration();
         AppVersionText.Text = $"App: {AppVersionInfo.Current}";
         IntegratedSettingsView.ConfigureUpdates(AppVersionInfo.DisplayVersion, _settings.AutomaticallyCheckForUpdates);
+        IntegratedSettingsView.ConfigureCustomButtons(_settings);
+        _customButtons = new CustomButtonShortcutController(_hid, GetCustomButtonPath);
+        _customButtons.StateChanged += CustomButtons_StateChanged;
+        _customButtons.ActionStatus += (_, message) => Dispatcher.BeginInvoke(() => ShowInlineStatus(message));
+        _tray = new SystemTrayService(_trayCommands);
+        _trayCommands.OpenRequested += Tray_OpenRequested;
+        _trayCommands.DisableShortcutsRequested += Tray_DisableShortcutsRequested;
+        _trayCommands.ExitRequested += Tray_ExitRequested;
+        IntegratedSettingsView.CustomShortcutPreferenceChanged += IntegratedSettingsView_CustomShortcutPreferenceChanged;
+        IntegratedSettingsView.CustomAppChosen += IntegratedSettingsView_CustomAppChosen;
+        IntegratedSettingsView.CustomAppCleared += IntegratedSettingsView_CustomAppCleared;
+        IntegratedSettingsView.FirmwareUpdateRequested += IntegratedSettingsView_FirmwareUpdateRequested;
         _selectedEffect = ParseLightingEffect(_settings.Effect);
         _settings.Effect = _selectedEffect.ToString();
         EnsureEditablePresets();
@@ -145,27 +166,37 @@ public partial class MainWindow : Window
         ShowMainPage(MainPage.Lighting);
         SaveSettingsNow();
 
-        if (_isStartupLaunch)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(3));
-        }
-
         _statusTimer.Start();
         await RefreshDeviceStatusAsync();
+        if (_settings.CustomShortcutsEnabled)
+            await _customButtons.SetPreferenceAsync(true);
+        else
+            IntegratedSettingsView.SetCustomRuntimeState(CustomShortcutRuntimeState.Stock);
         if (_settings.AutomaticallyCheckForUpdates)
             _ = CheckForApplicationUpdatesAsync(userInitiated: false);
+
+        if (_isStartupLaunch && _settings.CustomShortcutsEnabled)
+            await EnterBackgroundModeAsync();
     }
 
     private async void Window_Closing(object? sender, CancelEventArgs e)
     {
-        _statusTimer.Stop();
-        _settingsSaveTimer.Stop();
-        _liveApplyTimer.Stop();
-        _applyFeedbackCancellation?.Cancel();
-        SaveSettingsNow();
-        _updateDownloadCancellation?.Cancel();
-        await StopStreamingAsync();
-        _hid.Dispose();
+        if (_allowWindowClose) return;
+        if (App.IsSessionEnding)
+        {
+            SaveSettingsNow();
+            _tray.Dispose();
+            return;
+        }
+
+        e.Cancel = true;
+        if (CustomShortcutHostPolicy.KeepRunningOnWindowClose(_settings.CustomShortcutsEnabled))
+        {
+            await EnterBackgroundModeAsync();
+            return;
+        }
+
+        await ExitApplicationAsync();
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -381,7 +412,6 @@ public partial class MainWindow : Window
         {
             ShowInlineStatus($"Stopped sending · {openDetail}");
         }
-        _hid.Close();
         await RefreshDeviceStatusAsync();
     }
 
@@ -389,7 +419,11 @@ public partial class MainWindow : Window
     {
         if (_firmwareOperationActive) return;
         ShowInlineStatus("Reconnecting…");
+        await _customButtons.StopAsync(sendOff: true);
         if (_isStreaming) await StopStreamingAsync();
+        _hid.Close();
+        _firmwareChecked = false;
+        _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
         _stopRestoredStockMode = false;
         await RefreshDeviceStatusAsync();
         ShowInlineStatus(_isConnected ? "Reconnected" : "SC3 not detected");
@@ -432,7 +466,7 @@ public partial class MainWindow : Window
         if (_settings.StartWithWindows == enabled) return;
 
         _settings.StartWithWindows = enabled;
-        StartupManager.SetEnabled(enabled);
+        UpdateStartupRegistration();
         SaveSettingsNow();
     }
 
@@ -543,7 +577,6 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         finally
         {
-            _hid.Close();
             _isStreaming = false;
         }
     }
@@ -561,7 +594,6 @@ public partial class MainWindow : Window
             catch (OperationCanceledException) { }
         }
         cancellation?.Dispose();
-        _hid.Close();
         _isStreaming = false;
         StopButton.IsEnabled = _isConnected;
     }
@@ -586,6 +618,8 @@ public partial class MainWindow : Window
         {
             _firmwareChecked = false;
             _modInstalled = false;
+            _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
+            _finalMod15Capability = false;
             _firmwareStatus = restoreDetection!.NormalStatus;
             FirmwareVersionText.Text = "FW: Recovery Mode";
             FirmwareSetupButton.Visibility = Visibility.Collapsed;
@@ -595,6 +629,9 @@ public partial class MainWindow : Window
             _recoveryPromptShown = false;
             _firmwareChecked = false;
             _modInstalled = false;
+            _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
+            _finalMod15Capability = false;
+            _firmwareUpdateOfferShown = false;
             _firmwareStatus = null;
             FirmwareVersionText.Text = "FW: Not detected";
             FirmwareSetupButton.Visibility = Visibility.Collapsed;
@@ -603,14 +640,30 @@ public partial class MainWindow : Window
         {
             _recoveryPromptShown = false;
             DeviceStatus firmware = await Task.Run(_firmwareService.Detect);
+            Sc3QueryReply? queryReply = null;
+            if (firmware.ValidatedProfile && _hid.TryOpen(out _) &&
+                _hid.TryQuerySc3(out Sc3QueryReply parsedReply, out _))
+            {
+                queryReply = parsedReply;
+            }
+            Sc3FirmwareFlavor flavor = Sc3FirmwareClassificationPolicy.Resolve(
+                firmware.ValidatedProfile, firmware.ModInstalled, queryReply);
+
+            bool rgbMod = firmware.ModInstalled ||
+                flavor is Sc3FirmwareFlavor.Mod14 or Sc3FirmwareFlavor.DiagnosticMod14 or Sc3FirmwareFlavor.Mod15;
             _firmwareChecked = true;
-            _modInstalled = firmware.ModInstalled;
-            _firmwareStatus = firmware;
-            FirmwareVersionText.Text = firmware.ModInstalled ? "FW: RGB+ Mod 1.4" : "FW: Stock V22";
-            FirmwareSetupButton.Visibility = firmware.ValidatedProfile && !firmware.ModInstalled
+            _firmwareFlavor = flavor;
+            _finalMod15Capability = queryReply?.SupportsFinalCustomShortcuts == true;
+            _modInstalled = rgbMod;
+            _firmwareStatus = rgbMod && !firmware.ModInstalled
+                ? firmware with { ModInstalled = true, Message = FirmwareReadyMessage(flavor) }
+                : firmware;
+            FirmwareVersionText.Text = FirmwareVersionLabel(flavor);
+            FirmwareSetupButton.Visibility = firmware.ValidatedProfile && flavor == Sc3FirmwareFlavor.Stock
                 ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        RefreshFirmwareUpdatePresentation(connected);
         UpdateConnectionVisual(connected, detail);
 
         if (_recoveryModeDetected && !_recoveryPromptShown)
@@ -620,12 +673,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (connected && _firmwareFlavor == Sc3FirmwareFlavor.Mod14 && !_firmwareUpdateOfferShown && !_isStartupLaunch)
+        {
+            _firmwareUpdateOfferShown = true;
+            _ = Dispatcher.BeginInvoke(async () => await ShowMixerFirmwareUpdateOfferAsync());
+        }
+
         if (connected && _modInstalled && (newlyConnected || !_stopRestoredStockMode))
         {
             if (_settings.IsLightingEnabled)
                 QueueLiveApply();
             else
                 ApplySelectedColor();
+        }
+
+        if (connected && _firmwareFlavor == Sc3FirmwareFlavor.Mod15 &&
+            _customButtons.DesiredEnabled && !_customButtons.IsActive)
+        {
+            await _customButtons.StartAsync();
         }
     }
 
@@ -652,7 +717,7 @@ public partial class MainWindow : Window
             ? "SC3 detected in recovery mode. A firmware update may not have completed."
             : !connected ? "Device not detected."
             : !_firmwareChecked ? "Checking firmware state…"
-            : _firmwareStatus?.ValidatedProfile == true && _modInstalled ? "RGB+ Mod 1.4 ready."
+            : _firmwareStatus?.ValidatedProfile == true && _modInstalled ? FirmwareReadyMessage(_firmwareFlavor)
             : _firmwareStatus?.ValidatedProfile == true ? "SC3 is working normally. RGB setup required."
             : _firmwareStatus?.Message ?? "Firmware state is not verified.";
         FooterConnectionText.Text = recovery ? "FIFINE SC3 recovery bootloader detected" : connected ? "Connected to FIFINE SC3" : "FIFINE SC3 disconnected";
@@ -668,29 +733,243 @@ public partial class MainWindow : Window
 
     private async void FirmwareSetupButton_Click(object sender, RoutedEventArgs e)
     {
+        await RunMixerFirmwareUpdateAsync();
+    }
+
+    private void RefreshFirmwareUpdatePresentation(bool connected)
+    {
+        bool validatedProfile = _firmwareStatus?.ValidatedProfile == true;
+        MixerFirmwarePresentation presentation = MixerFirmwarePresentation.Create(
+            connected,
+            validatedProfile,
+            _firmwareFlavor,
+            _finalMod15Capability);
+        IntegratedSettingsView.SetMixerFirmwarePresentation(presentation);
+
+        string requirement = !connected
+            ? "Connect your SC3 to verify Firmware 1.5 before enabling Custom Button Shortcuts."
+            : _firmwareFlavor switch
+            {
+                Sc3FirmwareFlavor.Mod14 => "Firmware 1.5 is required for Custom Button Shortcuts. Your existing RGB+ 1.4 features remain available until you update.",
+                Sc3FirmwareFlavor.Stock => "Firmware 1.5 is required for Custom Button Shortcuts. Install RGB+ Firmware 1.5 from Updates.",
+                Sc3FirmwareFlavor.DiagnosticMod14 => "Production RGB+ Firmware 1.5 is required before Custom Button Shortcuts can be enabled.",
+                Sc3FirmwareFlavor.Mod15 when !_finalMod15Capability => "Firmware 1.5 was detected, but CBTN v2 could not be verified.",
+                _ => "Custom Button Shortcuts require a verified RGB+ Firmware 1.5 device."
+            };
+        IntegratedSettingsView.SetCustomFirmwareAvailability(
+            presentation.CustomButtonsAvailable,
+            _settings.CustomShortcutsEnabled,
+            requirement);
+    }
+
+    private async Task ShowMixerFirmwareUpdateOfferAsync()
+    {
+        if (_firmwareOperationActive || !_isConnected || _firmwareFlavor != Sc3FirmwareFlavor.Mod14)
+            return;
+
+        FirmwareUpdateAvailableWindow offer = new() { Owner = this };
+        if (offer.ShowDialog() == true)
+        {
+            ShowMainPage(MainPage.Settings);
+            IntegratedSettingsView.SelectUpdates();
+            await RunMixerFirmwareUpdateAsync();
+        }
+    }
+
+    private async void IntegratedSettingsView_FirmwareUpdateRequested(object? sender, EventArgs e)
+    {
+        await RunMixerFirmwareUpdateAsync();
+    }
+
+    private async Task RunMixerFirmwareUpdateAsync()
+    {
         if (_firmwareOperationActive) return;
+
+        if (!_firmwareChecked)
+            await RefreshDeviceStatusAsync();
+
+        if (_firmwareFlavor == Sc3FirmwareFlavor.Mod15 && _finalMod15Capability)
+        {
+            RefreshFirmwareUpdatePresentation(_isConnected);
+            ShowInlineStatus("RGB+ Firmware 1.5 is already up to date");
+            return;
+        }
+
+        if (!_isConnected || _firmwareStatus?.ValidatedProfile != true ||
+            _firmwareFlavor is not (Sc3FirmwareFlavor.Stock or Sc3FirmwareFlavor.Mod14))
+        {
+            MessageBox.Show(this,
+                "A supported Stock V22 or RGB+ Firmware 1.4 SC3 is required for this update.",
+                "Update SC3 Firmware", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         MessageBoxResult answer = MessageBox.Show(this,
-            "RGB control requires installing compatible firmware on your SC3.\n\nDo not disconnect the mixer during setup.",
-            "Enable RGB Control", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            "Your FIFINE SC3 mixer firmware will be updated to RGB+ Firmware 1.5.\n\n" +
+            "Keep the SC3 connected during the update. Audio may temporarily disconnect, and the device will reboot automatically.",
+            "Update SC3 Firmware", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;
 
-        await BeginFirmwareOperationAsync("Firmware setup in progress");
+        await BeginFirmwareOperationAsync("Preparing mixer firmware update");
         FirmwareSetupWindow progress = new(_firmwareService) { Owner = this };
         bool? success = progress.ShowDialog();
         await EndFirmwareOperationAsync();
-        if (success == true) ShowInlineStatus("RGB control ready");
-        else if (progress.Outcome == UpdaterState.SetupFailedDeviceHealthy) ShowInlineStatus("RGB setup failed · SC3 is working normally");
-        else if (progress.Outcome == UpdaterState.SetupFailedBootloaderAvailable) ShowInlineStatus("RGB setup incomplete · setup bootloader detected");
-        else if (progress.Outcome == UpdaterState.RecoveryRequired) ShowInlineStatus("SC3 recovery required");
+
+        if (success == true && _firmwareFlavor == Sc3FirmwareFlavor.Mod15 && _finalMod15Capability)
+        {
+            ShowMainPage(MainPage.Settings);
+            IntegratedSettingsView.SelectUpdates();
+            ShowInlineStatus("Firmware updated successfully");
+            MessageBox.Show(this, "Firmware updated successfully.", "Update SC3 Firmware",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else if (progress.Outcome == UpdaterState.SetupFailedDeviceHealthy)
+            ShowInlineStatus("Firmware update failed · SC3 is working normally");
+        else if (progress.Outcome == UpdaterState.SetupFailedBootloaderAvailable)
+            ShowInlineStatus("Firmware update incomplete · update bootloader detected");
+        else if (progress.Outcome == UpdaterState.RecoveryRequired)
+            ShowInlineStatus("SC3 recovery required");
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         if (_firmwareOperationActive) return;
-        IntegratedSettingsView.SelectTroubleshooting();
+        IntegratedSettingsView.SelectCustomButtons();
         ShowMainPage(MainPage.Settings);
     }
 
+    private async void IntegratedSettingsView_CustomShortcutPreferenceChanged(object? sender, EventArgs e)
+    {
+        _settings.CustomShortcutsEnabled = IntegratedSettingsView.CustomShortcutsEnabled;
+        SaveSettingsNow();
+        UpdateStartupRegistration();
+        await _customButtons.SetPreferenceAsync(_settings.CustomShortcutsEnabled);
+        if (!_settings.CustomShortcutsEnabled && !_backgroundMode)
+            _tray.Hide();
+    }
+
+    private void IntegratedSettingsView_CustomAppChosen(object? sender, CustomAppChosenEventArgs e)
+    {
+        SetCustomButtonAssignment(e.Button, e.Path, e.Name);
+        IntegratedSettingsView.SetCustomAssignment(e.Button, e.Name);
+        SaveSettingsNow();
+    }
+
+    private void IntegratedSettingsView_CustomAppCleared(object? sender, CustomButtonEventArgs e)
+    {
+        SetCustomButtonAssignment(e.Button, null, null);
+        IntegratedSettingsView.SetCustomAssignment(e.Button, null);
+        SaveSettingsNow();
+    }
+
+    private void CustomButtons_StateChanged(object? sender, CustomShortcutState e)
+    {
+        Dispatcher.BeginInvoke(() => IntegratedSettingsView.SetCustomRuntimeState(e.State, e.Message));
+    }
+
+    private void Tray_OpenRequested(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(() => _ = OpenFromTrayAsync()));
+
+    private void Tray_DisableShortcutsRequested(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(() => _ = DisableShortcutsFromTrayAsync()));
+
+    private void Tray_ExitRequested(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(() => _ = ExitApplicationAsync()));
+
+    private async Task EnterBackgroundModeAsync()
+    {
+        if (_backgroundMode || _exitInProgress) return;
+
+        SaveSettingsNow();
+        _statusTimer.Stop();
+        _settingsSaveTimer.Stop();
+        _liveApplyTimer.Stop();
+        _liveApplyPending = false;
+        _applyFeedbackCancellation?.Cancel();
+        await StopStreamingAsync();
+
+        _backgroundMode = true;
+        ShowInTaskbar = false;
+        Hide();
+        _tray.Show();
+    }
+
+    internal Task OpenFromExternalLaunchAsync() => OpenFromTrayAsync();
+
+    private async Task OpenFromTrayAsync()
+    {
+        if (_exitInProgress) return;
+
+        _backgroundMode = false;
+        ShowInTaskbar = true;
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        _tray.Hide();
+        _statusTimer.Start();
+        await RefreshDeviceStatusAsync();
+        if (_settings.CustomShortcutsEnabled)
+            await _customButtons.StartAsync();
+    }
+
+    private async Task DisableShortcutsFromTrayAsync()
+    {
+        if (_exitInProgress) return;
+
+        _settings.CustomShortcutsEnabled = false;
+        IntegratedSettingsView.SetCustomPreference(false);
+        SaveSettingsNow();
+        UpdateStartupRegistration();
+        await _customButtons.SetPreferenceAsync(false);
+        IntegratedSettingsView.SetCustomRuntimeState(CustomShortcutRuntimeState.Stock);
+    }
+
+    private async Task ExitApplicationAsync()
+    {
+        if (_exitInProgress) return;
+        _exitInProgress = true;
+
+        _statusTimer.Stop();
+        _settingsSaveTimer.Stop();
+        _liveApplyTimer.Stop();
+        _liveApplyPending = false;
+        _applyFeedbackCancellation?.Cancel();
+        _updateDownloadCancellation?.Cancel();
+        SaveSettingsNow();
+
+        await _customButtons.StopAsync(sendOff: true);
+        await StopStreamingAsync();
+        await _customButtons.DisposeAsync();
+        _hid.Dispose();
+        _tray.Dispose();
+
+        _allowWindowClose = true;
+        Close();
+        System.Windows.Application.Current.Shutdown();
+    }
+
+    private void UpdateStartupRegistration() =>
+        StartupManager.SetEnabled(CustomShortcutHostPolicy.ShouldRegisterStartup(
+            _settings.StartWithWindows, _settings.CustomShortcutsEnabled));
+
+    private string? GetCustomButtonPath(CustomButtonId button) => button switch
+    {
+        CustomButtonId.A => _settings.CustomAPath,
+        CustomButtonId.B => _settings.CustomBPath,
+        CustomButtonId.C => _settings.CustomCPath,
+        _ => _settings.CustomDPath
+    };
+
+    private void SetCustomButtonAssignment(CustomButtonId button, string? path, string? name)
+    {
+        switch (button)
+        {
+            case CustomButtonId.A: _settings.CustomAPath = path; _settings.CustomAName = name; break;
+            case CustomButtonId.B: _settings.CustomBPath = path; _settings.CustomBName = name; break;
+            case CustomButtonId.C: _settings.CustomCPath = path; _settings.CustomCName = name; break;
+            case CustomButtonId.D: _settings.CustomDPath = path; _settings.CustomDName = name; break;
+        }
+    }
     private async void IntegratedSettingsView_RestoreRequested(object? sender, EventArgs e)
     {
         await RestoreOriginalFirmwareAsync();
@@ -843,13 +1122,14 @@ public partial class MainWindow : Window
         _liveApplyPending = false;
         _liveApplyTimer.Stop();
         _statusTimer.Stop();
+        await _customButtons.StopAsync(sendOff: true);
         await StopStreamingAsync();
         _hid.Close();
 
         try
         {
-            await _applicationUpdateService.LaunchInstallerAsync(_downloadedUpdate, _settings.StartWithWindows);
-            Application.Current.Shutdown();
+            await _applicationUpdateService.LaunchInstallerAsync(_downloadedUpdate, CustomShortcutHostPolicy.ShouldRegisterStartup(_settings.StartWithWindows, _settings.CustomShortcutsEnabled));
+            await ExitApplicationAsync();
         }
         catch (UpdateVerificationException)
         {
@@ -969,10 +1249,12 @@ public partial class MainWindow : Window
         _statusTimer.Stop();
         _liveApplyPending = false;
         _liveApplyTimer.Stop();
+        await _customButtons.StopAsync(sendOff: true);
         await StopStreamingAsync();
         _hid.Close();
         _firmwareChecked = false;
         _modInstalled = false;
+        _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
         _firmwareStatus = null;
         FirmwareSetupButton.Visibility = Visibility.Collapsed;
         UpdateConnectionVisual(_isConnected, status);
@@ -984,6 +1266,7 @@ public partial class MainWindow : Window
         _firmwareOperationActive = false;
         _firmwareChecked = false;
         _modInstalled = false;
+        _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
         _firmwareStatus = null;
         _statusTimer.Start();
         await RefreshDeviceStatusAsync();
@@ -1316,6 +1599,22 @@ public partial class MainWindow : Window
         GreenBox.BorderBrush = brush;
         BlueBox.BorderBrush = brush;
     }
+
+    private static string FirmwareVersionLabel(Sc3FirmwareFlavor flavor) => flavor switch
+    {
+        Sc3FirmwareFlavor.Stock => "FW: Stock V22",
+        Sc3FirmwareFlavor.Mod14 => "FW: RGB+ Mod 1.4",
+        Sc3FirmwareFlavor.DiagnosticMod14 => "FW: Diagnostic Mod 1.4",
+        Sc3FirmwareFlavor.Mod15 => "FW: RGB+ Mod 1.5",
+        _ => "FW: Unknown"
+    };
+
+    private static string FirmwareReadyMessage(Sc3FirmwareFlavor flavor) => flavor switch
+    {
+        Sc3FirmwareFlavor.Mod15 => "RGB+ Mod 1.5 ready.",
+        Sc3FirmwareFlavor.DiagnosticMod14 => "Diagnostic Mod 1.4 ready.",
+        _ => "RGB+ Mod 1.4 ready."
+    };
 
     private void ShowInlineStatus(string message) => TransferStatusText.Text = message;
 }

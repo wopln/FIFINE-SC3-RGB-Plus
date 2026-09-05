@@ -1,0 +1,5 @@
+FIFINE SC3 RGB+ 2.5.0
+
+Mixer firmware updates only run after you explicitly choose Update Firmware and confirm the operation.
+Keep the FIFINE SC3 connected until the firmware update or restoration completes.
+Unsupported or unvalidated SC3 profiles are refused before firmware installation begins.

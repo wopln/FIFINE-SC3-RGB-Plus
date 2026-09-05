@@ -1,7 +1,7 @@
 using SC3FirmwareTool.Core;
 
 string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-string firmware = Path.Combine(root, "firmware", "candidates", "mod14", ReleasePolicy.FirmwareFileName);
+string firmware = Path.Combine(root, "firmware", "candidates", "mod15", ReleasePolicy.FirmwareFileName);
 MvaPackage package = MvaPackage.LoadApproved(firmware);
 var plan = ProtocolPlan.Build(package);
 void Require(bool value, string message) { if (!value) throw new Exception(message); }
@@ -163,7 +163,28 @@ Require(StockVerificationPolicy.IsVerifiedStock(validatedStock, false), "14 succ
 Require(!StockVerificationPolicy.IsVerifiedStock(validatedMod, false), "15 RGB+ attestation must be absent after stock restore");
 Require(FirmwarePresentationPolicy.ReadyLabel(validatedStock, false, false) == "RGB setup required", "16 app returns to RGB setup required");
 Require(FirmwarePresentationPolicy.ReadyLabel(validatedMod, false, true) != "RGB Ready", "17 RGB Ready hidden during restore");
-Require(FirmwarePresentationPolicy.ReadyLabel(validatedMod, false, false) == "RGB Ready", "18 existing Mod 1.4 ready state regression");
-Require(MvaPackage.LoadApproved(firmware).Sha256 == ReleasePolicy.FirmwareSha256, "18 existing Mod 1.4 package validation regression");
+Require(FirmwarePresentationPolicy.ReadyLabel(validatedMod, false, false) == "RGB Ready", "18 existing RGB-ready presentation regression");
+Require(MvaPackage.LoadApproved(firmware).Sha256 == ReleasePolicy.FirmwareSha256, "18 current Mod 1.5 package validation regression");
 
-Console.WriteLine("PASS: Restore Original Firmware tests 1-18 + existing Mod 1.4 updater regression");
+byte[] currentReport = new byte[256];
+ReleasePolicy.Attestation.CopyTo(currentReport, 0);
+"CBTN"u8.CopyTo(currentReport.AsSpan(0x10));
+currentReport[0x14] = ReleasePolicy.CbtnVersion;
+FirmwareIdentity currentIdentity = FirmwareIdentityPolicy.ParseAttestationReport(currentReport);
+Require(currentIdentity.IsProductionCurrent && !FirmwareIdentityPolicy.NeedsProductionInstall(currentIdentity), "19 current Mod 1.5 must be up to date and avoid reflash");
+
+byte[] legacyReport = new byte[256];
+LegacyMod14Policy.Attestation.CopyTo(legacyReport, 0);
+FirmwareIdentity legacyIdentity = FirmwareIdentityPolicy.ParseAttestationReport(legacyReport);
+Require(legacyIdentity.Flavor == InstalledFirmwareFlavor.Mod14 && FirmwareIdentityPolicy.NeedsProductionInstall(legacyIdentity), "20 Mod 1.4 must migrate directly to production Mod 1.5");
+
+byte[] stockReport = new byte[256];
+FirmwareIdentity stockIdentity = FirmwareIdentityPolicy.ParseAttestationReport(stockReport);
+Require(stockIdentity.Flavor == InstalledFirmwareFlavor.StockV22 && FirmwareIdentityPolicy.NeedsProductionInstall(stockIdentity), "21 Stock V22 must install production Mod 1.5 directly");
+
+byte[] invalidCurrentReport = (byte[])currentReport.Clone();
+invalidCurrentReport[0x14] = 1;
+FirmwareIdentity invalidCurrentIdentity = FirmwareIdentityPolicy.ParseAttestationReport(invalidCurrentReport);
+Require(invalidCurrentIdentity.Flavor == InstalledFirmwareFlavor.Mod15 && !invalidCurrentIdentity.IsProductionCurrent && !FirmwareIdentityPolicy.NeedsProductionInstall(invalidCurrentIdentity), "22 unverified Mod 1.5 must fail closed instead of reflashing");
+
+Console.WriteLine("PASS: firmware identity migration/skip policy checks 19-22");Console.WriteLine("PASS: Restore Original Firmware tests 1-18 + current Mod 1.5 updater regression");

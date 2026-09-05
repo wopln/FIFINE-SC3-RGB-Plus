@@ -22,12 +22,15 @@ public sealed class MvaPackage
     }
 
     public static MvaPackage LoadApproved(string path) =>
-        LoadExpected(path, ReleasePolicy.FirmwareFileName, ReleasePolicy.FirmwareSha256, ReleasePolicy.FirmwareSize, "RGB+ Mod 1.4");
+        LoadExpected(path, ReleasePolicy.FirmwareFileName, ReleasePolicy.FirmwareSha256, ReleasePolicy.FirmwareSize, "RGB+ Mod 1.5", ReleasePolicy.FirmwareCrc16);
 
     public static MvaPackage LoadStockRecovery(string path) =>
         LoadExpected(path, StockRecoveryPolicy.FirmwareFileName, StockRecoveryPolicy.FirmwareSha256, StockRecoveryPolicy.FirmwareSize, "Stock V22 recovery");
 
-    private static MvaPackage LoadExpected(string path, string expectedFileName, string expectedSha256, long expectedSize, string packageLabel)
+    public static MvaPackage LoadMod15Candidate(string path) =>
+        LoadExpected(path, Mod15CandidatePolicy.FirmwareFileName, Mod15CandidatePolicy.FirmwareSha256, Mod15CandidatePolicy.FirmwareSize, "RGB+ Mod 1.5", Mod15CandidatePolicy.FirmwareCrc16);
+
+    private static MvaPackage LoadExpected(string path, string expectedFileName, string expectedSha256, long expectedSize, string packageLabel, ushort? expectedCrc16 = null)
     {
         if (!string.Equals(Path.GetFileName(path), expectedFileName, StringComparison.Ordinal))
             throw new FirmwareUpdateException($"{packageLabel} firmware filename mismatch.");
@@ -38,7 +41,8 @@ public sealed class MvaPackage
         if (!data.AsSpan(0, 5).SequenceEqual(Convert.FromHexString("4D56B15804")))
             throw new FirmwareUpdateException("MVA target/header mismatch.");
         ushort storedCrc = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(data.Length - 4, 2));
-        if (storedCrc != Crc16(data.AsSpan(0, data.Length - 4)) || data[^2] != 0 || data[^1] != 0)
+        ushort computedCrc = Crc16(data.AsSpan(0, data.Length - 4));
+        if (storedCrc != computedCrc || (expectedCrc16.HasValue && storedCrc != expectedCrc16.Value) || data[^2] != 0 || data[^1] != 0)
             throw new FirmwareUpdateException("MVA container CRC mismatch.");
 
         int offset = 5;

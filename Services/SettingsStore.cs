@@ -16,45 +16,9 @@ public static class SettingsStore
     {
         try
         {
-            if (!File.Exists(FilePath))
-            {
-                return new AppSettings();
-            }
-
-            string json = File.ReadAllText(FilePath);
-            AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions)
-                                   ?? new AppSettings();
-
-            // Read the names used by builds before the persisted schema was made explicit.
-            using JsonDocument document = JsonDocument.Parse(json);
-            JsonElement root = document.RootElement;
-            if (root.TryGetProperty("LastHex", out JsonElement legacyHex) && legacyHex.ValueKind == JsonValueKind.String)
-            {
-                settings.LastHex = legacyHex.GetString() ?? settings.LastHex;
-            }
-
-            if (root.TryGetProperty("IsLightingEnabled", out JsonElement legacyLighting) &&
-                (legacyLighting.ValueKind == JsonValueKind.True || legacyLighting.ValueKind == JsonValueKind.False))
-            {
-                settings.IsLightingEnabled = legacyLighting.GetBoolean();
-            }
-
-            if (!root.TryGetProperty("StartWithWindows", out _))
-            {
-                settings.StartWithWindows = true;
-            }
-
-            if (!root.TryGetProperty("AutomaticallyCheckForUpdates", out _))
-            {
-                settings.AutomaticallyCheckForUpdates = true;
-            }
-
-            settings.BreathingSpeed = EffectSpeedPolicy.Normalize(settings.BreathingSpeed);
-            settings.RainbowSpeed = EffectSpeedPolicy.Normalize(settings.RainbowSpeed);
-            settings.PulseSpeed = EffectSpeedPolicy.Normalize(settings.PulseSpeed);
-            settings.ColorCycleSpeed = EffectSpeedPolicy.Normalize(settings.ColorCycleSpeed);
-
-            return settings;
+            return File.Exists(FilePath)
+                ? Deserialize(File.ReadAllText(FilePath))
+                : new AppSettings();
         }
         catch
         {
@@ -62,12 +26,40 @@ public static class SettingsStore
         }
     }
 
+    public static AppSettings Deserialize(string json)
+    {
+        AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions)
+                               ?? new AppSettings();
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        if (root.TryGetProperty("LastHex", out JsonElement legacyHex) && legacyHex.ValueKind == JsonValueKind.String)
+            settings.LastHex = legacyHex.GetString() ?? settings.LastHex;
+
+        if (root.TryGetProperty("IsLightingEnabled", out JsonElement legacyLighting) &&
+            legacyLighting.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            settings.IsLightingEnabled = legacyLighting.GetBoolean();
+
+        if (!root.TryGetProperty("StartWithWindows", out _))
+            settings.StartWithWindows = true;
+        if (!root.TryGetProperty("AutomaticallyCheckForUpdates", out _))
+            settings.AutomaticallyCheckForUpdates = true;
+        if (!root.TryGetProperty("CustomShortcutsEnabled", out _))
+            settings.CustomShortcutsEnabled = false;
+
+        settings.BreathingSpeed = EffectSpeedPolicy.Normalize(settings.BreathingSpeed);
+        settings.RainbowSpeed = EffectSpeedPolicy.Normalize(settings.RainbowSpeed);
+        settings.PulseSpeed = EffectSpeedPolicy.Normalize(settings.PulseSpeed);
+        settings.ColorCycleSpeed = EffectSpeedPolicy.Normalize(settings.ColorCycleSpeed);
+        return settings;
+    }
+
+    public static string Serialize(AppSettings settings) => JsonSerializer.Serialize(settings, JsonOptions);
+
     public static void Save(AppSettings settings)
     {
         Directory.CreateDirectory(DirectoryPath);
-        File.WriteAllText(
-            FilePath,
-            JsonSerializer.Serialize(settings, JsonOptions));
+        File.WriteAllText(FilePath, Serialize(settings));
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()

@@ -48,6 +48,17 @@ public sealed class AppSettings
     [JsonPropertyName("AutomaticallyCheckForUpdates")]
     public bool AutomaticallyCheckForUpdates { get; set; } = true;
 
+    [JsonPropertyName("CustomShortcutsEnabled")]
+    public bool CustomShortcutsEnabled { get; set; }
+
+    public string? CustomAPath { get; set; }
+    public string? CustomAName { get; set; }
+    public string? CustomBPath { get; set; }
+    public string? CustomBName { get; set; }
+    public string? CustomCPath { get; set; }
+    public string? CustomCName { get; set; }
+    public string? CustomDPath { get; set; }
+    public string? CustomDName { get; set; }
     public bool PresetsInitialized { get; set; }
     public List<ColorPreset> Presets { get; set; } = [];
 }

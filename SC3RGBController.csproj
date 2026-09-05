@@ -21,11 +21,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Updater\**\*.cs" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing.Common" />
+    <Compile Remove="captures\**\*.cs" />
     <ProjectReference Include="Updater\SC3FirmwareTool.Core\SC3FirmwareTool.Core.csproj" />
     <None Remove="Assets\*.png" />
     <Content Include="Assets\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Resource Include="Assets\fifine_sc3_rgb_plus.ico" />
-    <Content Include="firmware\candidates\mod14\SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva" Link="Firmware\SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="firmware\candidates\mod15\SC3-V22-RGB-Mod-1.5-CustomButtons.mva" Link="Firmware\SC3-V22-RGB-Mod-1.5-CustomButtons.mva" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="firmware\recovery\SC3_V22_recovery.MVA" Link="Firmware\SC3_V22_recovery.MVA" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

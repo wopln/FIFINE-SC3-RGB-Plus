@@ -10,6 +10,7 @@ public sealed class FirmwareService
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     public static string DefaultFirmwarePath => Path.Combine(AppContext.BaseDirectory, "Firmware", ReleasePolicy.FirmwareFileName);
     public static string DefaultStockFirmwarePath => Path.Combine(AppContext.BaseDirectory, "Firmware", StockRecoveryPolicy.FirmwareFileName);
+    public static string DefaultMod15CandidatePath => DefaultFirmwarePath;
 
     public DeviceStatus Detect()
     {
@@ -23,8 +24,18 @@ public sealed class FirmwareService
         {
             if (QueryOfficialVersion(identity) != ReleasePolicy.OfficialVersion)
                 return new(true, false, false, "Unsupported or unvalidated SC3 firmware revision.", identity.Path);
-            bool mod = QueryAttestation(identity);
-            return new(true, true, mod, mod ? "SC3 RGB+ Mod 1.4 ready." : "Validated SC3 detected; RGB setup required.", identity.Path, ReleasePolicy.ValidatedHidInstance);
+            FirmwareIdentity firmware = QueryFirmwareIdentity(identity);
+            if (firmware.Flavor == InstalledFirmwareFlavor.Unknown)
+                return new(true, false, false, "SC3 detected; firmware identity response was malformed.", identity.Path);
+            bool mod = firmware.Flavor is InstalledFirmwareFlavor.Mod14 or InstalledFirmwareFlavor.Mod15;
+            string message = firmware.Flavor switch
+            {
+                InstalledFirmwareFlavor.Mod15 when firmware.IsProductionCurrent => "SC3 RGB+ Mod 1.5 ready.",
+                InstalledFirmwareFlavor.Mod15 => "SC3 RGB+ Mod 1.5 identity detected, but Custom Button capability validation failed.",
+                InstalledFirmwareFlavor.Mod14 => "SC3 RGB+ Mod 1.4 ready; Mod 1.5 update available.",
+                _ => "Validated SC3 detected; RGB+ firmware setup required."
+            };
+            return new(true, true, mod, message, identity.Path, ReleasePolicy.ValidatedHidInstance);
         }
         catch (Exception ex) { return new(true, false, false, "SC3 detected; firmware validation failed: " + ex.Message, identity.Path); }
     }
@@ -39,17 +50,22 @@ public sealed class FirmwareService
     public string Info()
     {
         DeviceStatus status = Detect();
+        HidIdentity? identity = status.Present ? HidDiscovery.FindValidatedNormal() : null;
+        FirmwareIdentity? firmware = identity is not null && status.ValidatedProfile ? QueryFirmwareIdentity(identity) : null;
         return JsonSerializer.Serialize(new
         {
             releaseTier = ReleasePolicy.NativeUpdaterReleaseTier,
             status.Present, status.ValidatedProfile, status.ModInstalled, status.Message,
-            officialVersion = status.Present ? QueryOfficialVersion(HidDiscovery.FindValidatedNormal()!) : null,
+            officialVersion = identity is not null ? QueryOfficialVersion(identity) : null,
+            installedFirmware = firmware?.Flavor.ToString(),
+            cbtnVersion = firmware?.CbtnVersion,
             expectedBuildId = ReleasePolicy.BuildId
         }, new JsonSerializerOptions { WriteIndented = true });
     }
 
     public MvaPackage Verify(string? path = null) => MvaPackage.LoadApproved(path ?? DefaultFirmwarePath);
     public MvaPackage VerifyStock(string? path = null) => MvaPackage.LoadStockRecovery(path ?? DefaultStockFirmwarePath);
+    public MvaPackage VerifyMod15Candidate(string? path = null) => MvaPackage.LoadMod15Candidate(path ?? DefaultMod15CandidatePath);
 
     public DryRunResult DryRun(string? path = null)
     {
@@ -137,10 +153,27 @@ public sealed class FirmwareService
             HidIdentity? boot = HidDiscovery.FindBoot();
             if (normal is null && boot is null) throw new FirmwareUpdateException("Validated SC3 or its recovery bootloader was not found.");
             if (normal is not null && boot is not null) throw new FirmwareUpdateException("Ambiguous SC3 state.");
+
+            FirmwareIdentity? installed = null;
+            if (normal is not null)
+            {
+                if (QueryOfficialVersion(normal) != ReleasePolicy.OfficialVersion)
+                    throw new FirmwareUpdateException("Unsupported or unvalidated SC3 firmware revision.");
+                installed = QueryFirmwareIdentity(normal);
+                if (installed.IsProductionCurrent)
+                {
+                    Set(UpdaterState.SetupSucceeded, 100, "Firmware up to date");
+                    Log("AlreadyProductionMod15=true ReflashAvoided=true");
+                    return;
+                }
+                if (!FirmwareIdentityPolicy.NeedsProductionInstall(installed))
+                    throw new FirmwareUpdateException("Connected SC3 firmware identity is not eligible for the production update.");
+            }
+
             Set(UpdaterState.ValidatingFirmware, 0, "Checking approved firmware");
             MvaPackage package = Verify();
             (IReadOnlyList<ProtocolStep> plan, _, _, _) = ValidateProtocolPlan(package);
-            Log($"FirmwareSha256={package.Sha256} BuildId={ReleasePolicy.BuildId} NormalProfile={ReleasePolicy.NormalVid:X4}:{ReleasePolicy.NormalPid:X4} BootProfile={ReleasePolicy.BootVid:X4}:{ReleasePolicy.BootPid:X4}");
+            Log($"FirmwareSha256={package.Sha256} BuildId={ReleasePolicy.BuildId} Current={installed?.Flavor.ToString() ?? "Bootloader"} NormalProfile={ReleasePolicy.NormalVid:X4}:{ReleasePolicy.NormalPid:X4} BootProfile={ReleasePolicy.BootVid:X4}:{ReleasePolicy.BootPid:X4}");
             cancellationToken.ThrowIfCancellationRequested();
             Native.SetThreadExecutionState(0x80000001 | 0x00000040);
             Stopwatch elapsed = Stopwatch.StartNew();
@@ -149,9 +182,12 @@ public sealed class FirmwareService
             await FlashPackageAsync(boot!, package, elapsed, Log, Set, "Installing firmware");
             HidIdentity returned = await WaitForAsync(HidDiscovery.FindValidatedNormal, TimeSpan.FromSeconds(30), CancellationToken.None, true, "Validated SC3 did not return.");
             Set(UpdaterState.VerifyingDevice, 99, "Verifying SC3");
-            if (QueryOfficialVersion(returned) != ReleasePolicy.OfficialVersion || !QueryAttestation(returned))
-                throw new FirmwareUpdateException("Post-install firmware identity verification failed.", true);
-            Set(UpdaterState.SetupSucceeded, 100, "RGB control ready", 6496, 6496, 6496L * 256, elapsed.Elapsed);
+            if (HidDiscovery.FindBoot() is not null)
+                throw new FirmwareUpdateException("Bootloader remained present after the SC3 returned.", true);
+            FirmwareIdentity verifiedFirmware = QueryFirmwareIdentity(returned);
+            if (QueryOfficialVersion(returned) != ReleasePolicy.OfficialVersion || !verifiedFirmware.IsProductionCurrent)
+                throw new FirmwareUpdateException("Post-install Mod 1.5 identity or Custom Button capability verification failed.", true);
+            Set(UpdaterState.SetupSucceeded, 100, "Firmware updated successfully", 6496, 6496, 6496L * 256, elapsed.Elapsed);
         }
         catch (OperationCanceledException) when (!destructive)
         { Report(UpdaterState.Failed, 0, "Installation cancelled safely."); throw; }
@@ -264,7 +300,8 @@ public sealed class FirmwareService
             Set(UpdaterState.VerifyingDevice, 99, "Verifying");
             if (HidDiscovery.FindBoot() is not null)
                 throw new FirmwareUpdateException("Recovery bootloader remained present after normal SC3 returned.", true);
-            if (QueryOfficialVersion(returned) != ReleasePolicy.OfficialVersion || QueryAttestation(returned))
+            FirmwareIdentity restoredIdentity = QueryFirmwareIdentity(returned);
+            if (QueryOfficialVersion(returned) != ReleasePolicy.OfficialVersion || restoredIdentity.Flavor != InstalledFirmwareFlavor.StockV22)
                 throw new FirmwareUpdateException("Post-restore stock firmware verification failed.", true);
 
             await VerifyStableNormalAsync(CancellationToken.None);
@@ -500,10 +537,11 @@ public sealed class FirmwareService
         if (!response.SequenceEqual(expected)) throw new FirmwareUpdateException("Official version response mismatch.");
         return ReleasePolicy.OfficialVersion;
     }
-    private static bool QueryAttestation(HidIdentity identity)
+    private static FirmwareIdentity QueryFirmwareIdentity(HidIdentity identity)
     {
-        using HidConnection connection = new(identity); connection.Write(Pad(Convert.FromHexString("A55AFC010216")));
-        return connection.Read().AsSpan(0, 8).SequenceEqual(ReleasePolicy.Attestation);
+        using HidConnection connection = new(identity);
+        connection.Write(Pad(Convert.FromHexString("A55AFC010216")));
+        return FirmwareIdentityPolicy.ParseAttestationReport(connection.Read());
     }
     private static byte[] Pad(ReadOnlySpan<byte> value) { byte[] r = new byte[256]; value.CopyTo(r); return r; }
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, CancellationToken token, bool destructive, string failure)

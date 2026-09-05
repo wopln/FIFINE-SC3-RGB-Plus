@@ -10,6 +10,7 @@ List<(string Name, Func<Task> Run)> tests =
 [
     ("same version has no update", SameVersionHasNoUpdate),
     ("newer stable release detected", NewerStableReleaseDetected),
+    ("v2.4.0 stable sees v2.5.0 stable", Stable240SeesStable250),
     ("beta build receives newer beta", BetaBuildReceivesNewerBeta),
     ("stable build ignores beta release", StableBuildIgnoresBeta),
     ("draft and malformed releases ignored", DraftAndMalformedIgnored),
@@ -22,6 +23,7 @@ List<(string Name, Func<Task> Run)> tests =
     ("download cancellation leaves no installer", DownloadCancellationLeavesNoInstaller),
     ("network failure is graceful", NetworkFailureIsGraceful),
     ("settings survive update simulation", SettingsSurviveUpdateSimulation),
+    ("legacy settings default Custom Buttons off", LegacySettingsDefaultCustomButtonsOff),
     ("update simulation never invokes firmware updater", UpdateSimulationNeverInvokesFirmwareUpdater),
     ("local beta update simulation", LocalBetaUpdateSimulation),
     ("effect speed behavior", EffectSpeedBehavior)
@@ -49,6 +51,13 @@ static async Task NewerStableReleaseDetected()
     Assert(result.Candidate?.Version.Equals(V("2.4.0")) == true);
 }
 
+static async Task Stable240SeesStable250()
+{
+    ReleaseInfo release = CompleteRelease("v2.5.0", "payload");
+    UpdateCheckResult result = await Service([release]).CheckForUpdatesAsync(V("2.4.0"));
+    Assert(result.Status == UpdateCheckStatus.UpdateAvailable && result.Candidate?.Version.Equals(V("2.5.0")) == true);
+    Assert(result.Candidate?.Installer.Name == "FIFINE-SC3-RGB-Plus-2.5.0-Setup.exe");
+}
 static async Task BetaBuildReceivesNewerBeta()
 {
     UpdateCheckResult result = await Service([CompleteRelease("v2.4.0-beta", "payload")]).CheckForUpdatesAsync(V("2.3.0-beta"));
@@ -143,14 +152,27 @@ static Task SettingsSurviveUpdateSimulation()
     {
         LastHex = "#123456", Brightness = 42, Effect = "Rainbow", StartWithWindows = true,
         AutomaticallyCheckForUpdates = false, SelectedPresetId = "favourite",
+        CustomShortcutsEnabled = true, CustomAPath = @"C:\Apps\A.exe", CustomAName = "A",
+        CustomBPath = @"C:\Apps\B.lnk", CustomBName = "B", CustomCPath = @"C:\Apps\C.exe", CustomCName = "C",
+        CustomDPath = @"C:\Apps\D.lnk", CustomDName = "D",
         Presets = [new ColorPreset { Name = "Favourite", Hex = "#123456" }]
     };
     AppSettings restored = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
     Assert(restored.LastHex == settings.LastHex && restored.Brightness == 42 && restored.Effect == "Rainbow" &&
-           restored.StartWithWindows && !restored.AutomaticallyCheckForUpdates && restored.Presets.Count == 1);
+           restored.StartWithWindows && !restored.AutomaticallyCheckForUpdates && restored.Presets.Count == 1 &&
+           restored.CustomShortcutsEnabled && restored.CustomAPath == @"C:\Apps\A.exe" && restored.CustomBPath == @"C:\Apps\B.lnk" &&
+           restored.CustomCPath == @"C:\Apps\C.exe" && restored.CustomDPath == @"C:\Apps\D.lnk");
     return Task.CompletedTask;
 }
 
+static Task LegacySettingsDefaultCustomButtonsOff()
+{
+    AppSettings restored = JsonSerializer.Deserialize<AppSettings>("{\"Color\":\"#FF7800\",\"Brightness\":75,\"StartWithWindows\":true}")!;
+    Assert(!restored.CustomShortcutsEnabled);
+    Assert(restored.CustomAPath is null && restored.CustomBPath is null && restored.CustomCPath is null && restored.CustomDPath is null);
+    Assert(restored.Brightness == 75 && restored.StartWithWindows);
+    return Task.CompletedTask;
+}
 static async Task UpdateSimulationNeverInvokesFirmwareUpdater()
 {
     byte[] payload = Encoding.UTF8.GetBytes("installer");

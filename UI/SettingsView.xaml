@@ -80,6 +80,8 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Margin="4,0,0,0">
+                <Button x:Name="CustomButtonsNavigationButton" Style="{StaticResource SettingsNavigationButton}"
+                        Content="Custom Buttons" Margin="0,0,0,10" Click="CustomButtonsNavigationButton_Click"/>
                 <Button x:Name="UpdatesNavigationButton" Style="{StaticResource SettingsNavigationButton}"
                         Content="Updates" Margin="0,0,0,10" Click="UpdatesNavigationButton_Click"/>
                 <Button x:Name="TroubleshootingNavigationButton" Style="{StaticResource SettingsNavigationButton}"
@@ -88,12 +90,56 @@
 
             <Border Grid.Column="2" Style="{StaticResource CardStyle}" Padding="28">
                 <Grid>
+                <Grid x:Name="CustomButtonsContent" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="Custom Buttons" FontSize="24" FontWeight="SemiBold"/>
+                        <TextBlock Text="Use the SC3 Custom A–D buttons to launch applications." Foreground="{StaticResource SecondaryTextBrush}" FontSize="12.5" Margin="0,7,0,22"/>
+                        <Border Background="{StaticResource PanelAltBrush}" BorderBrush="#343434" BorderThickness="1" CornerRadius="12" Padding="20" Margin="0,0,0,16">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Custom Button Shortcuts" FontSize="16" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="CustomShortcutStatusText" Text="Original SC3 button behavior is active." Foreground="{StaticResource SecondaryTextBrush}" FontSize="11.5" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="CustomBackgroundNoteText" Text="Custom button shortcuts will remain active in the background when this window is closed." Foreground="{StaticResource MutedBrush}" FontSize="10.5" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
+                                    <TextBlock Text="Enable Custom Button Shortcuts" VerticalAlignment="Center" FontSize="12.5" Margin="0,0,12,0"/>
+                                    <CheckBox x:Name="CustomShortcutsToggle" Style="{StaticResource ToggleSwitch}" Width="48" Height="25" Checked="CustomShortcutsToggle_Changed" Unchecked="CustomShortcutsToggle_Changed"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <Border x:Name="CustomFirmwareRequirementPanel" Background="#15120D" BorderBrush="#6A4B22" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,0,16" Visibility="Collapsed">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Firmware 1.5 is required" FontSize="14" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="CustomFirmwareRequirementText" Text="Firmware 1.5 is required for Custom Button Shortcuts." Foreground="{StaticResource SecondaryTextBrush}" FontSize="11.5" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="Update Firmware" MinWidth="140" Margin="20,0,0,0" VerticalAlignment="Center"
+                                        Style="{StaticResource UpdateActionButton}" BorderBrush="#FF7800" Click="CustomFirmwareUpdateButton_Click"/>
+                            </Grid>
+                        </Border>                        <Border Background="{StaticResource PanelAltBrush}" BorderBrush="#343434" BorderThickness="1" CornerRadius="12" Padding="18">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions><TextBlock Text="Custom A" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock x:Name="CustomANameText" Grid.Column="1" Text="Not assigned" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center"/><StackPanel Grid.Column="2" Orientation="Horizontal"><Button Tag="A" Content="Choose App" Style="{StaticResource UpdateActionButton}" Click="ChooseCustomApp_Click"/><Button Tag="A" Content="Clear" Margin="8,0,0,0" Style="{StaticResource UpdateActionButton}" Click="ClearCustomApp_Click"/></StackPanel></Grid>
+                                <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions><TextBlock Text="Custom B" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock x:Name="CustomBNameText" Grid.Column="1" Text="Not assigned" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center"/><StackPanel Grid.Column="2" Orientation="Horizontal"><Button Tag="B" Content="Choose App" Style="{StaticResource UpdateActionButton}" Click="ChooseCustomApp_Click"/><Button Tag="B" Content="Clear" Margin="8,0,0,0" Style="{StaticResource UpdateActionButton}" Click="ClearCustomApp_Click"/></StackPanel></Grid>
+                                <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions><TextBlock Text="Custom C" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock x:Name="CustomCNameText" Grid.Column="1" Text="Not assigned" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center"/><StackPanel Grid.Column="2" Orientation="Horizontal"><Button Tag="C" Content="Choose App" Style="{StaticResource UpdateActionButton}" Click="ChooseCustomApp_Click"/><Button Tag="C" Content="Clear" Margin="8,0,0,0" Style="{StaticResource UpdateActionButton}" Click="ClearCustomApp_Click"/></StackPanel></Grid>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="190"/></Grid.ColumnDefinitions><TextBlock Text="Custom D" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock x:Name="CustomDNameText" Grid.Column="1" Text="Not assigned" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center"/><StackPanel Grid.Column="2" Orientation="Horizontal"><Button Tag="D" Content="Choose App" Style="{StaticResource UpdateActionButton}" Click="ChooseCustomApp_Click"/><Button Tag="D" Content="Clear" Margin="8,0,0,0" Style="{StaticResource UpdateActionButton}" Click="ClearCustomApp_Click"/></StackPanel></Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
                 <Grid x:Name="UpdatesContent" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="7"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="22"/>
+                        <RowDefinition Height="20"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="18"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="16"/>
                         <RowDefinition Height="Auto"/>
@@ -103,10 +149,11 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Text="Updates" FontSize="24" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Row="2" Text="Keep FIFINE SC3 RGB+ up to date from official GitHub releases."
+                    <TextBlock Grid.Row="2" Text="Keep the application and your SC3 firmware up to date."
                                Foreground="{StaticResource SecondaryTextBrush}" FontSize="12.5"/>
 
-                    <Border Grid.Row="4" Background="{StaticResource PanelAltBrush}" BorderBrush="#343434"
+                    <TextBlock Grid.Row="4" Text="APPLICATION" Foreground="{StaticResource MutedBrush}" FontSize="10.5" FontWeight="SemiBold"/>
+                    <Border Grid.Row="6" Background="{StaticResource PanelAltBrush}" BorderBrush="#343434"
                             BorderThickness="1" CornerRadius="12" Padding="20">
                         <Grid>
                             <Grid.RowDefinitions>
@@ -117,13 +164,17 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="Current version" Foreground="{StaticResource MutedBrush}" FontSize="11.5"/>
                                     <TextBlock x:Name="CurrentVersionText" Text="v0.0.0" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,0"/>
                                 </StackPanel>
-                                <StackPanel Grid.Column="1" HorizontalAlignment="Right">
-                                    <TextBlock Text="Update status" Foreground="{StaticResource MutedBrush}" FontSize="11.5" HorizontalAlignment="Right"/>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Latest" Foreground="{StaticResource MutedBrush}" FontSize="11.5"/>
+                                    <TextBlock x:Name="LatestVersionText" Text="Not checked" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                    <TextBlock Text="Status" Foreground="{StaticResource MutedBrush}" FontSize="11.5" HorizontalAlignment="Right"/>
                                     <TextBlock x:Name="UpdateStatusText" Text="Not checked yet" FontSize="13" Margin="0,4,0,0" HorizontalAlignment="Right"/>
                                 </StackPanel>
                             </Grid>
@@ -148,27 +199,52 @@
                         </Grid>
                     </Border>
 
-                    <Border x:Name="DownloadPanel" Grid.Row="6" Background="#101510" BorderBrush="#2E5735" BorderThickness="1" CornerRadius="12" Padding="18" Visibility="Collapsed">
+                    <TextBlock Grid.Row="8" Text="MIXER FIRMWARE" Foreground="{StaticResource MutedBrush}" FontSize="10.5" FontWeight="SemiBold"/>
+                    <Border Grid.Row="10" Background="{StaticResource PanelAltBrush}" BorderBrush="#343434" BorderThickness="1" CornerRadius="12" Padding="20">
                         <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="12"/>
-                                <RowDefinition Height="8"/>
-                                <RowDefinition Height="16"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Current" Foreground="{StaticResource MutedBrush}" FontSize="11.5"/>
+                                    <TextBlock x:Name="MixerFirmwareCurrentText" Text="Not detected" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Latest" Foreground="{StaticResource MutedBrush}" FontSize="11.5"/>
+                                    <TextBlock x:Name="MixerFirmwareLatestText" Text="RGB+ Firmware 1.5" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                    <TextBlock Text="Status" Foreground="{StaticResource MutedBrush}" FontSize="11.5" HorizontalAlignment="Right"/>
+                                    <TextBlock x:Name="MixerFirmwareStatusText" Text="Connect your SC3" FontSize="13" Margin="0,4,0,0" HorizontalAlignment="Right"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Grid.Row="2">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="MixerFirmwareDescriptionText" Text="Connect a supported FIFINE SC3 to check mixer firmware."
+                                           Foreground="{StaticResource SecondaryTextBrush}" FontSize="11.5" TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="430"/>
+                                <StackPanel x:Name="MixerFirmwareActionPanel" Grid.Column="1" Orientation="Horizontal" Margin="18,0,0,0" Visibility="Collapsed">
+                                    <Button x:Name="FirmwareLaterButton" Content="Later" MinWidth="82" Margin="0,0,10,0" Style="{StaticResource UpdateActionButton}" Click="FirmwareLaterButton_Click"/>
+                                    <Button x:Name="UpdateFirmwareButton" Content="Update Firmware" MinWidth="145" Style="{StaticResource UpdateActionButton}"
+                                            Background="#151B17" BorderBrush="{StaticResource ConnectedBrush}" Click="UpdateFirmwareButton_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="DownloadPanel" Grid.Row="12" Background="#101510" BorderBrush="#2E5735" BorderThickness="1" CornerRadius="12" Padding="18" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="8"/><RowDefinition Height="16"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <Grid>
                                 <TextBlock x:Name="DownloadStatusText" Text="Downloading update..." FontSize="13" FontWeight="SemiBold"/>
                                 <TextBlock x:Name="DownloadPercentText" Text="0%" Foreground="{StaticResource ConnectedBrush}" HorizontalAlignment="Right" FontSize="12"/>
                             </Grid>
                             <ProgressBar x:Name="UpdateDownloadProgress" Grid.Row="2" Minimum="0" Maximum="100" Value="0" Height="8"
                                          Background="#252525" Foreground="{StaticResource ConnectedBrush}" BorderThickness="0"/>
-                            <Button Grid.Row="4" Content="Cancel" Width="96" HorizontalAlignment="Right"
-                                    Style="{StaticResource UpdateActionButton}" Click="CancelDownloadButton_Click"/>
+                            <Button Grid.Row="4" Content="Cancel" Width="96" HorizontalAlignment="Right" Style="{StaticResource UpdateActionButton}" Click="CancelDownloadButton_Click"/>
                         </Grid>
                     </Border>
 
-                    <Border x:Name="UpdateReadyPanel" Grid.Row="8" Background="#101510" BorderBrush="{StaticResource ConnectedBrush}" BorderThickness="1" CornerRadius="12" Padding="18" Visibility="Collapsed">
+                    <Border x:Name="UpdateReadyPanel" Grid.Row="14" Background="#101510" BorderBrush="{StaticResource ConnectedBrush}" BorderThickness="1" CornerRadius="12" Padding="18" Visibility="Collapsed">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center">
@@ -221,4 +297,4 @@
             </Border>
         </Grid>
     </Grid>
-</UserControl>
+</UserControl>

@@ -31,7 +31,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-InfoBeforeFile=BETA-NOTICE.txt
+InfoBeforeFile=RELEASE-NOTICE.txt
 CloseApplications=yes
 AppMutex=FIFINE-SC3-RGB-PLUS
 RestartApplications=no
@@ -94,7 +94,7 @@ var
   SettingsDir: String;
   SettingsFile: String;
 begin
-  if (CurStep = ssPostInstall) and (not WizardIsTaskSelected('startup')) then
+  if (CurStep = ssPostInstall) and (not IsAppUpdate()) and (not WizardIsTaskSelected('startup')) then
   begin
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'FIFINE SC3 RGB+');
     SettingsDir := ExpandConstant('{localappdata}\SC3RGBController');

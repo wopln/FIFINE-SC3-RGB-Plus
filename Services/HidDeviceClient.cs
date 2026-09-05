@@ -5,7 +5,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace SC3RGBController.Services;
 
-public sealed class HidDeviceClient : IDisposable
+public sealed class HidDeviceClient : ISc3CustomButtonTransport, IDisposable
 {
     public const ushort ExpectedVid = 0x3142;
     public const ushort ExpectedPid = 0x0C33;
@@ -18,7 +18,8 @@ public sealed class HidDeviceClient : IDisposable
     public static bool RgbWritesEnabled => true;
     public static string OutputTransport => "HidD_SetOutputReport";
 
-    private const uint GenericWrite = 0x40000000;
+    private const uint GenericReadWrite = 0xC0000000;
+    private const uint FileFlagOverlapped = 0x40000000;
     private const uint FileShareRead = 0x00000001;
     private const uint FileShareWrite = 0x00000002;
     private const uint OpenExisting = 3;
@@ -80,11 +81,11 @@ public sealed class HidDeviceClient : IDisposable
 
             SafeFileHandle handle = Native.CreateFile(
                 identity.Path,
-                GenericWrite,
+                GenericReadWrite,
                 FileShareRead | FileShareWrite,
                 IntPtr.Zero,
                 OpenExisting,
-                0,
+                FileFlagOverlapped,
                 IntPtr.Zero);
             if (handle.IsInvalid)
             {
@@ -160,6 +161,60 @@ public sealed class HidDeviceClient : IDisposable
         }
     }
 
+    public bool TryQuerySc3(out Sc3QueryReply reply, out string detail)
+    {
+        lock (_gate)
+        {
+            reply = new(Sc3FirmwareFlavor.Unknown, false, false, 0, 0, 0, 0);
+            if (_writeHandle is not { IsInvalid: false, IsClosed: false } || _validatedIdentity?.MatchesExpected != true)
+            {
+                detail = "SC3 is not connected";
+                return false;
+            }
+            byte[] query = BuildFirmwareQueryReport();
+            if (!Native.HidD_SetOutputReport(_writeHandle, query, query.Length))
+            {
+                detail = $"FC/02 query failed · Windows error {Marshal.GetLastWin32Error()}";
+                CloseLocked();
+                return false;
+            }
+            byte[] response = new byte[ExpectedInputLength];
+            if (!Native.HidD_GetInputReport(_writeHandle, response, response.Length))
+            {
+                detail = $"FC/02 reply failed · Windows error {Marshal.GetLastWin32Error()}";
+                CloseLocked();
+                return false;
+            }
+            if (!Sc3QueryReply.TryParse(response, out reply))
+            {
+                detail = "FC/02 reply was invalid";
+                return false;
+            }
+            detail = "FC/02 reply valid";
+            return true;
+        }
+    }
+
+    public bool TrySetCustomButtonMode(bool enabled, out string detail)
+    {
+        lock (_gate)
+        {
+            if (_writeHandle is not { IsInvalid: false, IsClosed: false } || _validatedIdentity?.MatchesExpected != true)
+            {
+                detail = "SC3 is not connected";
+                return false;
+            }
+            byte[] report = BuildCustomButtonModeReport(enabled);
+            if (!Native.HidD_SetOutputReport(_writeHandle, report, report.Length))
+            {
+                detail = $"Custom Button mode command failed · Windows error {Marshal.GetLastWin32Error()}";
+                CloseLocked();
+                return false;
+            }
+            detail = enabled ? "Shortcut mode enabled" : "Shortcut mode off sent";
+            return true;
+        }
+    }
     public void Close()
     {
         lock (_gate)
@@ -201,6 +256,17 @@ public sealed class HidDeviceClient : IDisposable
         return report;
     }
 
+    public static byte[] BuildFirmwareQueryReport() => BuildWhitelistedFc01Report(0x02);
+    public static byte[] BuildCustomButtonModeReport(bool enabled) => BuildWhitelistedFc01Report(enabled ? (byte)0x03 : (byte)0x04);
+
+    private static byte[] BuildWhitelistedFc01Report(byte subcommand)
+    {
+        if (subcommand is not (0x02 or 0x03 or 0x04)) throw new InvalidOperationException("FC/01 whitelist rejected subcommand");
+        byte[] report = new byte[ExpectedOutputLength];
+        byte[] payload = [0xA5, 0x5A, 0xFC, 0x01, subcommand, 0x16];
+        Buffer.BlockCopy(payload, 0, report, 1, payload.Length);
+        return report;
+    }
     public static void ValidateCustomRgbReport(byte[] report, byte red, byte green, byte blue)
     {
         if (report.Length != ExpectedOutputLength || report[0] != 0)
@@ -470,6 +536,9 @@ public sealed class HidDeviceClient : IDisposable
             byte[] reportBuffer,
             int reportBufferLength);
 
+        [DllImport("hid.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool HidD_GetInputReport(SafeFileHandle handle, byte[] reportBuffer, int reportBufferLength);
         [DllImport("hid.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool HidD_GetManufacturerString(
@@ -533,5 +602,8 @@ public sealed class HidDeviceClient : IDisposable
             uint flagsAndAttributes,
             IntPtr templateFile);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CancelIoEx(SafeFileHandle handle, IntPtr overlapped);
     }
 }

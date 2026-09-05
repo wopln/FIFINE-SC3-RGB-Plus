@@ -2,13 +2,15 @@ namespace SC3FirmwareTool.Core;
 
 public static class ReleasePolicy
 {
-    public const string NativeUpdaterReleaseTier = "DevelopmentValidatedUnitOnly";
-    public const string FirmwareFileName = "SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva";
-    public const string FirmwareSha256 = "fb763b1f4e318b529f932897b63b723545f75f090fc220d9dd666198e73955b8";
+    public const string NativeUpdaterReleaseTier = "ProductionStable";
+    public const string FirmwareFileName = "SC3-V22-RGB-Mod-1.5-CustomButtons.mva";
+    public const string FirmwareSha256 = "589b2fcb590b999c905693df6aba6a343343ac6a8241b4aa9802853a72fa525b";
     public const long FirmwareSize = 1_726_821;
-    public const string BuildId = "SC3R-11140100";
+    public const ushort FirmwareCrc16 = 0xC12C;
+    public const string BuildId = "SC3R-11150100";
+    public const byte CbtnVersion = 2;
     public const string OfficialVersion = "1.33.5";
-    public static readonly byte[] Attestation = Convert.FromHexString("5343335211140100");
+    public static readonly byte[] Attestation = Convert.FromHexString("5343335211150100");
 
     public const ushort NormalVid = 0x3142;
     public const ushort NormalPid = 0x0C33;
@@ -24,6 +26,60 @@ public static class ReleasePolicy
     public const string ValidatedBootHidInstance = "8&2b96d23b&0&0000";
 }
 
+public static class LegacyMod14Policy
+{
+    public const string FirmwareFileName = "SC3-V22-RGB-Mod-1.4-Attestation-Candidate.mva";
+    public const string FirmwareSha256 = "fb763b1f4e318b529f932897b63b723545f75f090fc220d9dd666198e73955b8";
+    public const long FirmwareSize = 1_726_821;
+    public const string BuildId = "SC3R-11140100";
+    public static readonly byte[] Attestation = Convert.FromHexString("5343335211140100");
+}
+
+public static class Mod15CandidatePolicy
+{
+    public const string FirmwareFileName = ReleasePolicy.FirmwareFileName;
+    public const string FirmwareSha256 = ReleasePolicy.FirmwareSha256;
+    public const long FirmwareSize = ReleasePolicy.FirmwareSize;
+    public const ushort FirmwareCrc16 = ReleasePolicy.FirmwareCrc16;
+    public const string BuildId = ReleasePolicy.BuildId;
+    public static readonly byte[] Attestation = ReleasePolicy.Attestation;
+}
+
+public enum InstalledFirmwareFlavor
+{
+    Unknown,
+    StockV22,
+    Mod14,
+    Mod15
+}
+
+public sealed record FirmwareIdentity(InstalledFirmwareFlavor Flavor, bool CbtnPresent, byte CbtnVersion)
+{
+    public bool IsProductionCurrent =>
+        Flavor == InstalledFirmwareFlavor.Mod15 && CbtnPresent && CbtnVersion == ReleasePolicy.CbtnVersion;
+}
+
+public static class FirmwareIdentityPolicy
+{
+    public static FirmwareIdentity ParseAttestationReport(ReadOnlySpan<byte> report)
+    {
+        if (report.Length < 0x15)
+            return new(InstalledFirmwareFlavor.Unknown, false, 0);
+
+        InstalledFirmwareFlavor flavor = report[..8].SequenceEqual(ReleasePolicy.Attestation)
+            ? InstalledFirmwareFlavor.Mod15
+            : report[..8].SequenceEqual(LegacyMod14Policy.Attestation)
+                ? InstalledFirmwareFlavor.Mod14
+                : InstalledFirmwareFlavor.StockV22;
+
+        bool cbtn = report.Slice(0x10, 4).SequenceEqual("CBTN"u8);
+        byte version = cbtn ? report[0x14] : (byte)0;
+        return new(flavor, cbtn, version);
+    }
+
+    public static bool NeedsProductionInstall(FirmwareIdentity identity) =>
+        identity.Flavor is InstalledFirmwareFlavor.StockV22 or InstalledFirmwareFlavor.Mod14;
+}
 public static class StockRecoveryPolicy
 {
     public const string FirmwareFileName = "SC3_V22_recovery.MVA";

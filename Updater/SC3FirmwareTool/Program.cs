@@ -4,7 +4,7 @@ using SC3FirmwareTool.Core;
 static void Write(object value) => Console.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
 if (args.Length == 0 || args[0] is "help" or "--help")
 {
-    Console.WriteLine("SC3FirmwareTool detect|detect-recovery|info|verify|verify-stock|install-rgb [--dry-run|--confirm SC3R-11140100]|restore-stock --dry-run");
+    Console.WriteLine($"SC3FirmwareTool detect|detect-recovery|info|verify|verify-stock|install-rgb [--dry-run|--confirm {ReleasePolicy.BuildId}]|restore-stock --dry-run");
     return 2;
 }
 
@@ -31,7 +31,7 @@ try
             Write(service.DryRun()); break;
         case "install-rgb":
             int confirm = Array.FindIndex(args, x => x.Equals("--confirm", StringComparison.OrdinalIgnoreCase));
-            if (confirm < 0 || confirm + 1 >= args.Length) throw new FirmwareUpdateException("Use --confirm SC3R-11140100 after explicit user approval.");
+            if (confirm < 0 || confirm + 1 >= args.Length) throw new FirmwareUpdateException($"Use --confirm {ReleasePolicy.BuildId} after explicit user approval.");
             using (Semaphore gate = new(1, 1, "Global\\FIFINE-SC3-RGB-PLUS-FIRMWARE-INSTALL"))
             {
                 if (!gate.WaitOne(0)) throw new FirmwareUpdateException("Another firmware installation is active.");

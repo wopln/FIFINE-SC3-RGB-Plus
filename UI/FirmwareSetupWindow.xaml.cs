@@ -23,6 +23,11 @@ public partial class FirmwareSetupWindow : Window
         InitializeComponent();
         _service = service;
         _mode = mode;
+        if (_mode == FirmwareWindowMode.InstallRgb)
+        {
+            HeadingText.Text = "Updating your SC3";
+            DetailText.Text = "Keep the SC3 connected until the firmware update completes.";
+        }
         if (_mode == FirmwareWindowMode.RestoreStock)
         {
             Title = "Restore Original Firmware";
@@ -48,24 +53,36 @@ public partial class FirmwareSetupWindow : Window
             : InstallStage(value);
         DetailText.Text = _mode == FirmwareWindowMode.RestoreStock
             ? RestoreDetail(value)
-            : value.TotalBlocks > 0
-                ? $"{value.CurrentBlock:N0} / {value.TotalBlocks:N0} blocks · Do not disconnect the mixer."
-                : value.Message;
+            : InstallDetail(value);
     });
 
     private static string InstallStage(UpdateProgress value) => value.State switch
     {
-        UpdaterState.ValidatingDevice or UpdaterState.ValidatingFirmware or UpdaterState.EnteringBootloader => "Preparing",
-        UpdaterState.Erasing or UpdaterState.PreparingUpdate or UpdaterState.Transferring or UpdaterState.Finalizing => "Installing firmware",
-        UpdaterState.WaitingForBootloader or UpdaterState.WaitingForReboot => "Restarting SC3",
+        UpdaterState.ValidatingDevice or UpdaterState.ValidatingFirmware => "Preparing",
+        UpdaterState.EnteringBootloader or UpdaterState.WaitingForBootloader or UpdaterState.BootloaderConnected => "Entering update mode",
+        UpdaterState.Erasing or UpdaterState.PreparingUpdate or UpdaterState.Transferring or UpdaterState.Finalizing => "Updating firmware",
+        UpdaterState.WaitingForReboot => "Restarting SC3",
         UpdaterState.VerifyingDevice => "Verifying",
-        UpdaterState.Success or UpdaterState.SetupSucceeded => "Ready",
+        UpdaterState.Success or UpdaterState.SetupSucceeded => "Complete",
         UpdaterState.SetupFailedDeviceHealthy => "RGB setup failed",
         UpdaterState.SetupFailedBootloaderAvailable => "RGB setup incomplete",
         UpdaterState.RecoveryRequired => "SC3 recovery required",
         _ => value.Message
     };
 
+    private static string InstallDetail(UpdateProgress value) => value.State switch
+    {
+        UpdaterState.ValidatingDevice or UpdaterState.ValidatingFirmware => "Checking the connected SC3 and Firmware 1.5 package.",
+        UpdaterState.EnteringBootloader or UpdaterState.WaitingForBootloader or UpdaterState.BootloaderConnected => "The SC3 is entering update mode. Keep it connected.",
+        UpdaterState.Erasing or UpdaterState.PreparingUpdate or UpdaterState.Transferring or UpdaterState.Finalizing => "Firmware is being updated. Audio may be temporarily unavailable.",
+        UpdaterState.WaitingForReboot => "The SC3 is restarting automatically. Keep it connected.",
+        UpdaterState.VerifyingDevice => "Confirming Firmware 1.5 and Custom Button support.",
+        UpdaterState.Success or UpdaterState.SetupSucceeded => "RGB+ Firmware 1.5 is installed and verified.",
+        UpdaterState.SetupFailedDeviceHealthy => "The firmware update failed, but the SC3 is working normally.",
+        UpdaterState.SetupFailedBootloaderAvailable => "The update did not complete. The SC3 remains available for recovery.",
+        UpdaterState.RecoveryRequired => "The update did not complete and SC3 recovery is required.",
+        _ => "Keep the SC3 connected until the firmware update completes."
+    };
     private static string RestoreStage(UpdateProgress value) => value.State switch
     {
         UpdaterState.ValidatingDevice or UpdaterState.ValidatingFirmware or UpdaterState.EnteringBootloader or
