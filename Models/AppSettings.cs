@@ -60,5 +60,7 @@ public sealed class AppSettings
     public string? CustomDPath { get; set; }
     public string? CustomDName { get; set; }
     public bool PresetsInitialized { get; set; }
+    // Highest starter-preset set merged into Presets; lets new starters reach existing users once.
+    public int StarterPresetsVersion { get; set; }
     public List<ColorPreset> Presets { get; set; } = [];
 }

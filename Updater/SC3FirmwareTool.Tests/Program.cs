@@ -187,7 +187,20 @@ invalidCurrentReport[0x14] = 1;
 FirmwareIdentity invalidCurrentIdentity = FirmwareIdentityPolicy.ParseAttestationReport(invalidCurrentReport);
 Require(invalidCurrentIdentity.Flavor == InstalledFirmwareFlavor.Mod15 && !invalidCurrentIdentity.IsProductionCurrent && !FirmwareIdentityPolicy.NeedsProductionInstall(invalidCurrentIdentity), "22 unverified Mod 1.5 must fail closed instead of reflashing");
 
-Console.WriteLine("PASS: firmware identity migration/skip policy checks 19-22");Console.WriteLine("PASS: Restore Original Firmware tests 1-18 + current Mod 1.5 updater regression");
+Console.WriteLine("PASS: firmware identity migration/skip policy checks 19-22");
+
+// HID instance IDs are assigned by Windows per machine/port and must not affect identity.
+static HidIdentity Sc3(string instance, ushort usagePage = 0xFF00, string mi = "04") =>
+    new($@"\\?\hid#vid_3142&pid_0c33&mi_{mi}#{instance}#{{4d1e55b2-f16f-11cf-88cb-001111000030}}",
+        0x3142, 0x0C33, 0x0100, "MV-SILICON", "fifine SC3", "20190808", usagePage, 0x55AA, 257, 257, 9);
+Require(HidDiscovery.IsValidatedNormal(Sc3("a&2911e28a&0&0000")), "23 original developer instance validates");
+Require(HidDiscovery.IsValidatedNormal(Sc3("8&2f503c32&0&0000")), "24 other machine/port instance validates");
+Require(HidDiscovery.DescribeNormalMismatch(Sc3("8&2f503c32&0&0000", usagePage: 0x000C)) == "usage 000C:55AA", "25 wrong usage is rejected with reason");
+Require(HidDiscovery.DescribeNormalMismatch(Sc3("8&2f503c32&0&0000", mi: "03")) == "not interface MI_04", "26 non-control interface is rejected");
+Require(HidDiscovery.IsBoot(new(@"\\?\hid#vid_0000&pid_2244#9&1234abcd&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+    0x0000, 0x2244, 0, "", "", "", 0, 0, 0, 0, 0)), "27 bootloader validates on any instance");
+Console.WriteLine("PASS: HID identity is independent of Windows instance IDs (23-27)");
+Console.WriteLine("PASS: Restore Original Firmware tests 1-18 + current Mod 1.5 updater regression");
 
 static string FindRepoRoot()
 {

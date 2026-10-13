@@ -1,10 +1,14 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
-using System.Windows.Media;
+using System.Windows.Input;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using SC3RGBController.Models;
 using SC3RGBController.Services;
+using SC3RGBController.Services.Actions;
 using SC3RGBController.Services.Updates;
 
 namespace SC3RGBController.UI;
@@ -23,6 +27,11 @@ public sealed class CustomButtonEventArgs(CustomButtonId button) : EventArgs
 
 public partial class SettingsView : UserControl
 {
+    private const int GeneralSection = 0;
+    private const int CustomButtonsSection = 1;
+    private const int UpdatesSection = 2;
+    private const int TroubleshootingSection = 3;
+
     public event EventHandler? RestoreRequested;
     public event EventHandler? BackRequested;
     public event EventHandler? CheckForUpdatesRequested;
@@ -32,21 +41,41 @@ public partial class SettingsView : UserControl
     public event EventHandler? AutomaticUpdateCheckChanged;
     public event EventHandler? CustomShortcutPreferenceChanged;
     public event EventHandler? FirmwareUpdateRequested;
+    public event EventHandler? StartWithWindowsChanged;
     public event EventHandler<CustomAppChosenEventArgs>? CustomAppChosen;
     public event EventHandler<CustomButtonEventArgs>? CustomAppCleared;
 
     private bool _syncingUpdateToggle;
     private bool _syncingCustomToggle;
+    private bool _syncingStartupToggle;
     private bool _firmwareDeferred;
+    private bool _restoreFocusToCheckButton;
     private string? _lastFirmwareFingerprint;
 
     public bool AutomaticUpdateCheckEnabled => AutomaticUpdateCheckToggle.IsChecked == true;
     public bool CustomShortcutsEnabled => CustomShortcutsToggle.IsChecked == true;
+    public bool StartWithWindowsEnabled => StartWithWindowsToggle.IsChecked == true;
+
+    private RadioButton[] NavigationItems =>
+    [
+        GeneralNavigationButton,
+        CustomButtonsNavigationButton,
+        UpdatesNavigationButton,
+        TroubleshootingNavigationButton
+    ];
 
     public SettingsView()
     {
         InitializeComponent();
-        SelectCustomButtons();
+        SelectGeneral();
+    }
+
+    /// <summary>Sets the Start with Windows toggle without raising <see cref="StartWithWindowsChanged"/>.</summary>
+    public void SetStartWithWindows(bool enabled)
+    {
+        _syncingStartupToggle = true;
+        StartWithWindowsToggle.IsChecked = enabled;
+        _syncingStartupToggle = false;
     }
 
     public void ConfigureUpdates(string currentVersion, bool automaticallyCheck)
@@ -80,11 +109,14 @@ public partial class SettingsView : UserControl
             CustomButtonId.C => CustomCNameText,
             _ => CustomDNameText
         };
-        target.Text = string.IsNullOrWhiteSpace(name) ? "Not assigned" : name;
+        string text = string.IsNullOrWhiteSpace(name) ? "Not assigned" : name;
+        target.Text = text;
+        // Pair the assignment with its row label so screen readers read e.g. "Custom A: Notepad".
+        AutomationProperties.SetName(target, $"Custom {button}: {text}");
     }
 
     public void SetCustomRuntimeState(CustomShortcutRuntimeState state, string? message = null) =>
-        CustomShortcutStatusText.Text = message ?? CustomShortcutStatusPolicy.For(state);
+        SetLiveText(CustomShortcutStatusText, message ?? CustomShortcutStatusPolicy.For(state));
 
     public void SetCustomPreference(bool enabled)
     {
@@ -123,38 +155,38 @@ public partial class SettingsView : UserControl
 
         MixerFirmwareCurrentText.Text = presentation.Current;
         MixerFirmwareLatestText.Text = presentation.Latest;
-        MixerFirmwareStatusText.Text = presentation.Status;
+        SetLiveText(MixerFirmwareStatusText, presentation.Status);
         MixerFirmwareDescriptionText.Text = presentation.Description;
-        MixerFirmwareActionPanel.Visibility = presentation.UpdateAvailable && !_firmwareDeferred
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        bool showActions = presentation.UpdateAvailable && !_firmwareDeferred;
+        if (!showActions) MoveFocusOutOf(MixerFirmwareActionPanel, CheckForUpdatesButton);
+        MixerFirmwareActionPanel.Visibility = showActions ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    public void SelectCustomButtons() => SelectSection(0);
-    public void SelectUpdates() => SelectSection(1);
-    public void SelectTroubleshooting() => SelectSection(2);
+    public void SelectGeneral() => SelectSection(GeneralSection);
+    public void SelectCustomButtons() => SelectSection(CustomButtonsSection);
+    public void SelectUpdates() => SelectSection(UpdatesSection);
+    public void SelectTroubleshooting() => SelectSection(TroubleshootingSection);
 
     private void SelectSection(int section)
     {
-        CustomButtonsContent.Visibility = section == 0 ? Visibility.Visible : Visibility.Collapsed;
-        UpdatesContent.Visibility = section == 1 ? Visibility.Visible : Visibility.Collapsed;
-        TroubleshootingContent.Visibility = section == 2 ? Visibility.Visible : Visibility.Collapsed;
-        ApplyNavigationState(CustomButtonsNavigationButton, section == 0);
-        ApplyNavigationState(UpdatesNavigationButton, section == 1);
-        ApplyNavigationState(TroubleshootingNavigationButton, section == 2);
-    }
+        GeneralContent.Visibility = section == GeneralSection ? Visibility.Visible : Visibility.Collapsed;
+        CustomButtonsContent.Visibility = section == CustomButtonsSection ? Visibility.Visible : Visibility.Collapsed;
+        UpdatesContent.Visibility = section == UpdatesSection ? Visibility.Visible : Visibility.Collapsed;
+        TroubleshootingContent.Visibility = section == TroubleshootingSection ? Visibility.Visible : Visibility.Collapsed;
 
-    private void ApplyNavigationState(Button button, bool selected)
-    {
-        Brush active = (Brush)FindResource("ConnectedBrush");
-        button.BorderBrush = selected ? active : new SolidColorBrush(Color.FromRgb(52, 52, 52));
-        button.Background = selected ? new SolidColorBrush(Color.FromRgb(21, 27, 23)) : new SolidColorBrush(Color.FromRgb(17, 17, 17));
+        // Selection state is the radio button's IsChecked (styled by NavItem, announced as "selected").
+        // Setting IsChecked on an already-checked item raises no Checked event, so this cannot recurse.
+        RadioButton selected = NavigationItems[section];
+        if (selected.IsChecked != true) selected.IsChecked = true;
+        SectionScrollViewer.ScrollToTop();
     }
 
     public void ShowUpdateChecking()
     {
         LatestVersionText.Text = "Checking...";
-        UpdateStatusText.Text = "Checking...";
+        SetLiveText(UpdateStatusText, "Checking...");
+        // Disabling a focused button drops keyboard focus; remember to put it back when the check ends.
+        _restoreFocusToCheckButton = CheckForUpdatesButton.IsKeyboardFocused;
         CheckForUpdatesButton.IsEnabled = false;
         UpdateNowButton.Visibility = Visibility.Collapsed;
         UpdateReadyPanel.Visibility = Visibility.Collapsed;
@@ -168,27 +200,35 @@ public partial class SettingsView : UserControl
             : result.Status == UpdateCheckStatus.UpToDate
                 ? CurrentVersionText.Text
                 : "Unknown";
-        UpdateStatusText.Text = result.Message;
+        SetLiveText(UpdateStatusText, result.Message, force: true);
         UpdateNowButton.Visibility = result.Candidate is null ? Visibility.Collapsed : Visibility.Visible;
         UpdateNowButton.IsEnabled = result.Candidate?.HasIntegrityMetadata == true;
+        MoveFocusOutOf(DownloadPanel, CheckForUpdatesButton);
         DownloadPanel.Visibility = Visibility.Collapsed;
         if (result.Status != UpdateCheckStatus.UpdateAvailable)
+        {
+            MoveFocusOutOf(UpdateReadyPanel, CheckForUpdatesButton);
             UpdateReadyPanel.Visibility = Visibility.Collapsed;
+        }
+        RestoreCheckButtonFocus();
     }
 
     public void ShowDownloadStarted()
     {
         UpdateDownloadProgress.Value = 0;
         DownloadPercentText.Text = "0%";
-        DownloadStatusText.Text = "Downloading update...";
+        bool moveFocusToCancel = UpdateNowButton.IsKeyboardFocused || UpdateReadyPanel.IsKeyboardFocusWithin;
         DownloadPanel.Visibility = Visibility.Visible;
+        SetLiveText(DownloadStatusText, "Downloading update...", force: true);
         UpdateReadyPanel.Visibility = Visibility.Collapsed;
         UpdateNowButton.IsEnabled = false;
         CheckForUpdatesButton.IsEnabled = false;
+        if (moveFocusToCancel) FocusWhenReady(CancelDownloadButton);
     }
 
     public void SetDownloadProgress(int percent)
     {
+        // The ProgressBar exposes its value to assistive technology; no per-tick announcements.
         int value = Math.Clamp(percent, 0, 100);
         UpdateDownloadProgress.Value = value;
         DownloadPercentText.Text = $"{value}%";
@@ -197,21 +237,26 @@ public partial class SettingsView : UserControl
     public void ShowUpdateReady(SemanticVersion version)
     {
         LatestVersionText.Text = $"v{version}";
+        bool focusWasInDownload = DownloadPanel.IsKeyboardFocusWithin;
         DownloadPanel.Visibility = Visibility.Collapsed;
         CheckForUpdatesButton.IsEnabled = true;
         UpdateNowButton.IsEnabled = true;
         UpdateReadyDetailText.Text = $"FIFINE SC3 RGB+ v{version} is verified and ready.";
         UpdateReadyPanel.Visibility = Visibility.Visible;
-        UpdateStatusText.Text = $"v{version} ready to install";
+        SetLiveText(UpdateStatusText, $"v{version} ready to install");
+        if (focusWasInDownload) FocusWhenReady(InstallAndRestartButton);
     }
 
     public void ShowUpdateError(string message)
     {
+        MoveFocusOutOf(DownloadPanel, CheckForUpdatesButton);
         DownloadPanel.Visibility = Visibility.Collapsed;
+        MoveFocusOutOf(UpdateReadyPanel, CheckForUpdatesButton);
         UpdateReadyPanel.Visibility = Visibility.Collapsed;
         CheckForUpdatesButton.IsEnabled = true;
         UpdateNowButton.IsEnabled = true;
-        UpdateStatusText.Text = message;
+        SetLiveText(UpdateStatusText, message, force: true);
+        RestoreCheckButtonFocus();
     }
 
     public void ShowInstalling()
@@ -219,23 +264,60 @@ public partial class SettingsView : UserControl
         DownloadPanel.Visibility = Visibility.Collapsed;
         UpdateReadyPanel.Visibility = Visibility.Visible;
         UpdateReadyDetailText.Text = "Closing RGB activity and starting the verified installer...";
-        UpdateStatusText.Text = "Installing update...";
+        SetLiveText(UpdateStatusText, "Installing update...");
         CheckForUpdatesButton.IsEnabled = false;
         UpdateNowButton.IsEnabled = false;
     }
 
-    private void CustomButtonsNavigationButton_Click(object sender, RoutedEventArgs e) => SelectCustomButtons();
-    private void UpdatesNavigationButton_Click(object sender, RoutedEventArgs e) => SelectUpdates();
-    private void TroubleshootingNavigationButton_Click(object sender, RoutedEventArgs e) => SelectTroubleshooting();
-    private void BackButton_Click(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);
+    // ---------- Keyboard ----------
+
+    // Escape leaves Settings (the main window decides where to go).
+    private void SettingsView_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || BackRequested is null) return;
+        BackRequested.Invoke(this, EventArgs.Empty);
+        e.Handled = true;
+    }
+
+    // Up/Down move through the section list and select it (selection follows focus), wrapping at the ends.
+    private void SettingsNavigationPanel_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Up or Key.Down)) return;
+        RadioButton[] items = NavigationItems;
+        int current = Array.FindIndex(items, item => item.IsKeyboardFocused);
+        if (current < 0) return;
+        int next = (current + (e.Key == Key.Down ? 1 : -1) + items.Length) % items.Length;
+        items[next].IsChecked = true;
+        items[next].Focus();
+        e.Handled = true;
+    }
+
+    private void GeneralNavigationButton_Checked(object sender, RoutedEventArgs e) => SelectGeneral();
+    private void CustomButtonsNavigationButton_Checked(object sender, RoutedEventArgs e) => SelectCustomButtons();
+    private void UpdatesNavigationButton_Checked(object sender, RoutedEventArgs e) => SelectUpdates();
+    private void TroubleshootingNavigationButton_Checked(object sender, RoutedEventArgs e) => SelectTroubleshooting();
+
+    // ---------- Actions ----------
+
     private void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e) => CheckForUpdatesRequested?.Invoke(this, EventArgs.Empty);
     private void UpdateNowButton_Click(object sender, RoutedEventArgs e) => UpdateNowRequested?.Invoke(this, EventArgs.Empty);
     private void CancelDownloadButton_Click(object sender, RoutedEventArgs e) => CancelDownloadRequested?.Invoke(this, EventArgs.Empty);
     private void InstallAndRestartButton_Click(object sender, RoutedEventArgs e) => InstallAndRestartRequested?.Invoke(this, EventArgs.Empty);
-    private void ReadyLaterButton_Click(object sender, RoutedEventArgs e) => UpdateReadyPanel.Visibility = Visibility.Collapsed;
+
+    private void ReadyLaterButton_Click(object sender, RoutedEventArgs e)
+    {
+        MoveFocusOutOf(UpdateReadyPanel, UpdateNowButton.IsVisible && UpdateNowButton.IsEnabled ? UpdateNowButton : CheckForUpdatesButton);
+        UpdateReadyPanel.Visibility = Visibility.Collapsed;
+    }
+
     private void AutomaticUpdateCheckToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (!_syncingUpdateToggle) AutomaticUpdateCheckChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void StartWithWindowsToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_syncingStartupToggle) StartWithWindowsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void CustomShortcutsToggle_Changed(object sender, RoutedEventArgs e)
@@ -261,6 +343,7 @@ public partial class SettingsView : UserControl
     private void FirmwareLaterButton_Click(object sender, RoutedEventArgs e)
     {
         _firmwareDeferred = true;
+        MoveFocusOutOf(MixerFirmwareActionPanel, CheckForUpdatesButton);
         MixerFirmwareActionPanel.Visibility = Visibility.Collapsed;
         MixerFirmwareDescriptionText.Text += " You can update later from this page.";
     }
@@ -270,20 +353,67 @@ public partial class SettingsView : UserControl
     private void ChooseCustomApp_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button || !Enum.TryParse(button.Tag?.ToString(), out CustomButtonId id)) return;
-        OpenFileDialog dialog = new()
+        CustomButtonAction current = CustomButtonAction.Parse(CurrentActionProvider?.Invoke(id));
+        CustomActionPickerWindow picker = new($"Custom {id}", current, AudioAppsProvider)
         {
-            Title = $"Choose application for Custom {id}",
-            Filter = "Applications (*.exe;*.lnk)|*.exe;*.lnk",
-            CheckFileExists = true,
-            Multiselect = false
+            Owner = Window.GetWindow(this)
         };
-        if (dialog.ShowDialog() == true)
-            CustomAppChosen?.Invoke(this, new(id, dialog.FileName, Path.GetFileNameWithoutExtension(dialog.FileName)));
+        if (picker.ShowDialog() != true) { button.Focus(); return; }
+
+        if (picker.SelectedAction.Kind == CustomActionKind.None)
+            CustomAppCleared?.Invoke(this, new(id));
+        else
+            CustomAppChosen?.Invoke(this, new(id, picker.SelectedAction.Serialize(), picker.SelectedDisplayName));
+        button.Focus();
     }
+
+    /// <summary>Returns the stored action string for a button (set by the host window).</summary>
+    public Func<CustomButtonId, string?>? CurrentActionProvider { get; set; }
+
+    /// <summary>Apps currently playing audio, for the picker's App audio list (set by the host window).</summary>
+    public Func<IReadOnlyList<(string ProcessName, string DisplayName)>>? AudioAppsProvider { get; set; }
 
     private void ClearCustomApp_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button button && Enum.TryParse(button.Tag?.ToString(), out CustomButtonId id))
             CustomAppCleared?.Invoke(this, new(id));
+    }
+
+    // ---------- Accessibility helpers ----------
+
+    /// <summary>Sets status text and announces it through the element's live region when it changes (or when forced).</summary>
+    private static void SetLiveText(TextBlock target, string text, bool force = false)
+    {
+        bool changed = !string.Equals(target.Text, text, StringComparison.Ordinal);
+        target.Text = text;
+        if (changed || force) Announce(target);
+    }
+
+    /// <summary>Raises LiveRegionChanged so Narrator/NVDA read the element's current text.
+    /// The element must have AutomationProperties.LiveSetting set (done in XAML).</summary>
+    private static void Announce(FrameworkElement element)
+    {
+        if (!AutomationPeer.ListenerExists(AutomationEvents.LiveRegionChanged)) return;
+        AutomationPeer? peer = UIElementAutomationPeer.FromElement(element) ?? UIElementAutomationPeer.CreatePeerForElement(element);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+    }
+
+    /// <summary>If keyboard focus is inside a panel that is about to be hidden, move it to a sensible target so focus is not lost.</summary>
+    private static void MoveFocusOutOf(FrameworkElement panel, Control target)
+    {
+        if (panel.IsKeyboardFocusWithin) FocusWhenReady(target);
+    }
+
+    private static void FocusWhenReady(Control target) =>
+        target.Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+        {
+            if (target.IsVisible && target.IsEnabled) target.Focus();
+        }));
+
+    private void RestoreCheckButtonFocus()
+    {
+        if (!_restoreFocusToCheckButton) return;
+        _restoreFocusToCheckButton = false;
+        FocusWhenReady(CheckForUpdatesButton);
     }
 }

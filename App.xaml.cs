@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Threading;
 using SC3RGBController.Models;
 using SC3RGBController.Services;
+using SC3RGBController.UI.Themes;
 
 namespace SC3RGBController;
 
@@ -21,6 +22,11 @@ public partial class App : Application
 
     private void Application_Startup(object sender, StartupEventArgs e)
     {
+        // Swap design tokens for system colors before any window loads (most markup uses StaticResource).
+        ThemeManager.ApplyHighContrastIfEnabled(Current.Resources);
+        ThemeManager.UseDarkTitleBarsForAllWindows();
+        SystemParameters.StaticPropertyChanged += SystemParameters_StaticPropertyChanged;
+
         _instanceMutex = new Mutex(true, InstanceMutexName, out bool firstInstance);
         if (!firstInstance)
         {
@@ -58,6 +64,16 @@ public partial class App : Application
         {
             Dispatcher.BeginInvoke(new Action(async () => await OpenMainWindowAsync()));
         }
+    }
+
+    private void SystemParameters_StaticPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(SystemParameters.HighContrast)) return;
+
+        // Re-apply when High Contrast is switched on while running. Elements that used
+        // StaticResource keep their already-resolved brushes until the app restarts, and
+        // turning High Contrast off is not reverted live; both are acceptable (a restart applies it).
+        Dispatcher.BeginInvoke(new Action(() => ThemeManager.ApplyHighContrastIfEnabled(Current.Resources)));
     }
 
     private void WatchForActivation(CancellationToken cancellationToken)
@@ -154,6 +170,7 @@ public partial class App : Application
 
     private void Application_Exit(object sender, ExitEventArgs e)
     {
+        SystemParameters.StaticPropertyChanged -= SystemParameters_StaticPropertyChanged;
         StopBackgroundSessionAsync().GetAwaiter().GetResult();
         _activationCancellation?.Cancel();
         try { _activationEvent?.Set(); } catch (ObjectDisposedException) { }

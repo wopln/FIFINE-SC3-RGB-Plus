@@ -1,6 +1,8 @@
 using SC3FirmwareTool.Core;
 using SC3RGBController.Models;
 using SC3RGBController.Services;
+using SC3RGBController.Services.Actions;
+using SC3RGBController.Services.Audio;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
@@ -34,7 +36,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ("production controller blocks unavailable event transport", ProductionPollingSafetyGuard),
     ("stability policy requires event-driven transport", StabilityPolicy),
     ("MI_03 event profile is distinct from MI_04 control", EventInterfaceProfile),
-    ("shortcut session uses interrupt events without FC/02 polling", EventDrivenShortcuts)
+    ("shortcut session uses interrupt events without FC/02 polling", EventDrivenShortcuts),
+    ("accent foreground and outline colors stay readable", AccentContrast),
+    ("custom action Serialize/Parse round-trips every kind", CustomActionRoundTrip),
+    ("custom action legacy path, garbage and step clamping", CustomActionLegacyAndClamping),
+    ("action runner disabled/unassigned/program dispatch", RunnerBasicDispatch),
+    ("action runner app mute raises feedback", RunnerAppMuteFeedback),
+    ("action runner volume/mic/system/media dispatch", RunnerAudioAndMediaDispatch),
+    ("action runner reports missing audio session", RunnerMissingSession),
+    ("action runner never throws on audio failures", RunnerSwallowsExceptions),
+    ("action runner LaunchApp validates AppUserModelID", RunnerLaunchAppValidation),
+    ("audio step math and INPUT struct layout", AudioStepAndInputLayout)
 };
 
 foreach (var test in tests)
@@ -392,6 +404,20 @@ static async Task WaitUntil(Func<bool> condition, int timeoutMs = 1000)
     }
 }
 
+static Task AccentContrast()
+{
+    var panel = System.Windows.Media.Color.FromRgb(9, 9, 9);
+    foreach (string hex in new[] { "#FFFFFF", "#000000", "#FF7800", "#FFD000", "#0000FF", "#00FF00", "#9D00FF", "#202020", "#808080" })
+    {
+        Require(ColorText.TryParseHex(hex, out var color), "parse " + hex);
+        Require(ColorText.Contrast(ColorText.ForegroundOn(color), color) >= 4.5, $"content on {hex} must reach 4.5:1");
+        Require(ColorText.Contrast(ColorText.VisibleOnDark(color), panel) >= 4.5, $"{hex} accent text must reach 4.5:1 on panels");
+    }
+    Require(ColorText.ForegroundOn(System.Windows.Media.Colors.White) == System.Windows.Media.Colors.Black, "white accent uses black content");
+    Require(ColorText.VisibleOnDark(System.Windows.Media.Colors.White) == System.Windows.Media.Colors.White, "bright accents are unchanged");
+    return Task.CompletedTask;
+}
+
 static void Require(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
@@ -452,6 +478,196 @@ static async Task EventDrivenShortcuts()
         "event session order was not BEGIN -> STOCK -> DRAIN -> SHORTCUT");
     Require(transport.EventReadCalls >= 2, "interrupt event reads did not continue");
     Require(transport.QueryCalls == 0, "shortcut loop issued FC/02 control queries");
+}
+
+static Task CustomActionRoundTrip()
+{
+    foreach (CustomActionKind kind in Enum.GetValues<CustomActionKind>())
+    {
+        string? target = kind switch
+        {
+            CustomActionKind.LaunchProgram => @"C:\Program Files\App Folder\app.exe",
+            CustomActionKind.LaunchApp => "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+            CustomActionKind.AppMuteToggle or CustomActionKind.AppVolumeUp or CustomActionKind.AppVolumeDown => "Discord & Co=1?",
+            _ => null
+        };
+        var action = new CustomButtonAction(kind, target, 25);
+        string stored = action.Serialize();
+        CustomButtonAction parsed = CustomButtonAction.Parse(stored);
+        Require(parsed.Kind == kind, $"{kind} kind did not round-trip ({stored})");
+        Require(parsed.Target == target, $"{kind} target did not round-trip ({stored})");
+        if (action.UsesStep) Require(parsed.Step == 25, $"{kind} step did not round-trip ({stored})");
+        if (kind == CustomActionKind.None) Require(stored.Length == 0, "None must serialize to empty");
+        if (kind == CustomActionKind.LaunchProgram) Require(stored == target, "LaunchProgram must stay a plain path");
+    }
+    return Task.CompletedTask;
+}
+
+static Task CustomActionLegacyAndClamping()
+{
+    CustomButtonAction legacy = CustomButtonAction.Parse(@"C:\Tools\obs64.exe");
+    Require(legacy.Kind == CustomActionKind.LaunchProgram && legacy.Target == @"C:\Tools\obs64.exe", "legacy path must be LaunchProgram");
+    Require(CustomButtonAction.Parse("sc3action:Nope").Kind == CustomActionKind.None, "unknown kind must be None");
+    Require(CustomButtonAction.Parse("sc3action:LaunchProgram?target=x.exe").Kind == CustomActionKind.None, "LaunchProgram is never scheme-encoded");
+    Require(CustomButtonAction.Parse(null).Kind == CustomActionKind.None && CustomButtonAction.Parse("  ").Kind == CustomActionKind.None, "blank must be None");
+    Require(CustomButtonAction.Parse("SC3ACTION:mediaplaypause").Kind == CustomActionKind.MediaPlayPause, "scheme/kind must be case-insensitive");
+    Require(CustomButtonAction.Parse("sc3action:SystemVolumeUp?step=500").Step == 100, "step must clamp to 100");
+    Require(CustomButtonAction.Parse("sc3action:SystemVolumeUp?step=-3").Step == 1, "step must clamp to 1");
+    Require(CustomButtonAction.Parse("sc3action:SystemVolumeUp?step=abc").Step == CustomButtonAction.DefaultStep, "bad step uses default");
+    Require(new CustomButtonAction(CustomActionKind.SystemVolumeDown, Step: 0).Serialize().EndsWith("step=1"), "serialize must clamp step");
+    Require(new CustomButtonAction(CustomActionKind.AppVolumeUp, "Spotify", 999).Serialize().EndsWith("step=100"), "serialize must clamp step high");
+    return Task.CompletedTask;
+}
+
+static Task RunnerBasicDispatch()
+{
+    var programs = new FakeLauncher();
+    var audio = new FakeAudio();
+    var media = new FakeMediaKeys();
+    var runner = new CustomButtonActionRunner(programs, audio, media, _ => true);
+    Require(runner.Launch(false, "sc3action:MediaNext") == ShortcutLaunchResult.Disabled, "disabled must not run");
+    Require(media.Sent.Count == 0, "disabled still sent a key");
+    Require(runner.Launch(true, null) == ShortcutLaunchResult.Unassigned, "null must be unassigned");
+    Require(runner.Launch(true, "") == ShortcutLaunchResult.Unassigned, "empty must be unassigned");
+    Require(runner.Launch(true, "sc3action:Nope") == ShortcutLaunchResult.Unassigned, "garbage must be unassigned");
+    Require(runner.Launch(true, @"C:\Apps\obs.exe") == ShortcutLaunchResult.Launched, "legacy path must use program launcher");
+    Require(programs.Launched.SequenceEqual(new[] { @"C:\Apps\obs.exe" }), "program launcher received wrong path");
+    Require(audio.Calls.Count == 0, "launch touched audio");
+    return Task.CompletedTask;
+}
+
+static Task RunnerAppMuteFeedback()
+{
+    var audio = new FakeAudio();
+    var runner = new CustomButtonActionRunner(new FakeLauncher(), audio, new FakeMediaKeys(), _ => true);
+    List<string> feedback = [];
+    runner.Feedback += (_, m) => feedback.Add(m);
+    string stored = new CustomButtonAction(CustomActionKind.AppMuteToggle, "Discord").Serialize();
+    Require(runner.Launch(true, stored) == ShortcutLaunchResult.Launched, "app mute should report Launched");
+    Require(audio.Calls.SequenceEqual(new[] { "ToggleAppMute:Discord" }), "ToggleAppMute(\"Discord\") not called");
+    Require(feedback.SequenceEqual(new[] { "Discord muted" }), "feedback not raised with result message");
+    return Task.CompletedTask;
+}
+
+static Task RunnerAudioAndMediaDispatch()
+{
+    var audio = new FakeAudio();
+    var media = new FakeMediaKeys();
+    var runner = new CustomButtonActionRunner(new FakeLauncher(), audio, media, _ => true);
+    int feedbackCount = 0;
+    runner.Feedback += (_, _) => feedbackCount++;
+    string S(CustomActionKind k, string? t = null, int step = 10) => new CustomButtonAction(k, t, step).Serialize();
+    Require(runner.Launch(true, S(CustomActionKind.AppVolumeUp, "Spotify", 15)) == ShortcutLaunchResult.Launched, "app vol up");
+    Require(runner.Launch(true, S(CustomActionKind.AppVolumeDown, "Spotify", 5)) == ShortcutLaunchResult.Launched, "app vol down");
+    Require(runner.Launch(true, S(CustomActionKind.MicMuteToggle)) == ShortcutLaunchResult.Launched, "mic");
+    Require(runner.Launch(true, S(CustomActionKind.SystemMuteToggle)) == ShortcutLaunchResult.Launched, "sys mute");
+    Require(runner.Launch(true, S(CustomActionKind.SystemVolumeUp, step: 20)) == ShortcutLaunchResult.Launched, "sys up");
+    Require(runner.Launch(true, S(CustomActionKind.SystemVolumeDown, step: 30)) == ShortcutLaunchResult.Launched, "sys down");
+    Require(audio.Calls.SequenceEqual(new[]
+    {
+        "StepAppVolume:Spotify:15", "StepAppVolume:Spotify:-5", "ToggleMicrophoneMute",
+        "ToggleSystemMute", "StepSystemVolume:20", "StepSystemVolume:-30"
+    }), "audio dispatch wrong: " + string.Join(",", audio.Calls));
+    Require(runner.Launch(true, S(CustomActionKind.MediaPlayPause)) == ShortcutLaunchResult.Launched, "play/pause");
+    Require(runner.Launch(true, S(CustomActionKind.MediaNext)) == ShortcutLaunchResult.Launched, "next");
+    Require(runner.Launch(true, S(CustomActionKind.MediaPrevious)) == ShortcutLaunchResult.Launched, "prev");
+    Require(media.Sent.SequenceEqual(new[] { MediaKey.PlayPause, MediaKey.Next, MediaKey.Previous }), "media dispatch wrong");
+    Require(feedbackCount == 9, $"every audio/media action must raise feedback (got {feedbackCount})");
+    media.Succeed = false;
+    Require(runner.Launch(true, S(CustomActionKind.MediaNext)) == ShortcutLaunchResult.Failed, "rejected SendInput must be Failed");
+    Require(feedbackCount == 10, "failed media key must still raise feedback");
+    Require(runner.Launch(true, "sc3action:AppMuteToggle") == ShortcutLaunchResult.MissingTarget, "app action without target");
+    return Task.CompletedTask;
+}
+
+static Task RunnerMissingSession()
+{
+    var audio = new FakeAudio { NoSession = true };
+    var runner = new CustomButtonActionRunner(new FakeLauncher(), audio, new FakeMediaKeys(), _ => true);
+    List<string> feedback = [];
+    runner.Feedback += (_, m) => feedback.Add(m);
+    Require(runner.Launch(true, "sc3action:AppMuteToggle?target=Discord") == ShortcutLaunchResult.MissingTarget, "no session must be MissingTarget");
+    Require(feedback.SequenceEqual(new[] { "Discord isn't playing audio right now" }), "missing session feedback wrong");
+    return Task.CompletedTask;
+}
+
+static Task RunnerSwallowsExceptions()
+{
+    var audio = new FakeAudio { Throw = true };
+    var media = new FakeMediaKeys { Throw = true };
+    var runner = new CustomButtonActionRunner(new FakeLauncher(), audio, media, _ => throw new InvalidOperationException());
+    int feedbackCount = 0;
+    runner.Feedback += (_, _) => { feedbackCount++; throw new InvalidOperationException("bad subscriber"); };
+    foreach (string stored in new[] { "sc3action:AppMuteToggle?target=Discord", "sc3action:MicMuteToggle",
+                 "sc3action:SystemVolumeUp?step=10", "sc3action:MediaPlayPause", "sc3action:LaunchApp?target=Foo!App" })
+        Require(runner.Launch(true, stored) == ShortcutLaunchResult.Failed, stored + " must be Failed when the backend throws");
+    Require(feedbackCount == 4, "audio/media failures must still raise feedback");
+    return Task.CompletedTask;
+}
+
+static Task RunnerLaunchAppValidation()
+{
+    List<System.Diagnostics.ProcessStartInfo> started = [];
+    var runner = new CustomButtonActionRunner(new FakeLauncher(), new FakeAudio(), new FakeMediaKeys(),
+        psi => { started.Add(psi); return true; });
+    string stored = new CustomButtonAction(CustomActionKind.LaunchApp, "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App").Serialize();
+    Require(runner.Launch(true, stored) == ShortcutLaunchResult.Launched, "LaunchApp should launch");
+    Require(started.Count == 1 && started[0].FileName == "explorer.exe" && started[0].UseShellExecute &&
+            started[0].Arguments == @"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", "LaunchApp start info wrong");
+    Require(runner.Launch(true, "sc3action:LaunchApp") == ShortcutLaunchResult.MissingTarget, "empty app id");
+    Require(runner.Launch(true, new CustomButtonAction(CustomActionKind.LaunchApp, "a\" & calc").Serialize()) == ShortcutLaunchResult.UnsupportedTarget, "quote must be rejected");
+    Require(runner.Launch(true, new CustomButtonAction(CustomActionKind.LaunchApp, "a\nb").Serialize()) == ShortcutLaunchResult.UnsupportedTarget, "newline must be rejected");
+    Require(started.Count == 1, "invalid app ids must not start a process");
+    return Task.CompletedTask;
+}
+
+static Task AudioStepAndInputLayout()
+{
+    Require(AudioControlService.StepPercent(0.5f, 10) == 60, "50% + 10");
+    Require(AudioControlService.StepPercent(0.95f, 10) == 100, "clamp high");
+    Require(AudioControlService.StepPercent(0.03f, -10) == 0, "clamp low");
+    Require(AudioControlService.StepPercent(0.333f, 0) == 33, "rounding");
+    Require(MediaKeySender.NativeInputSize == (IntPtr.Size == 8 ? 40 : 28), "INPUT struct size wrong: " + MediaKeySender.NativeInputSize);
+    Require(MediaKeySender.VirtualKeyFor(MediaKey.PlayPause) == 0xB3 && MediaKeySender.VirtualKeyFor(MediaKey.Next) == 0xB0 &&
+            MediaKeySender.VirtualKeyFor(MediaKey.Previous) == 0xB1, "media VK codes wrong");
+    return Task.CompletedTask;
+}
+
+sealed class FakeAudio : IAudioControl
+{
+    public List<string> Calls { get; } = [];
+    public bool NoSession { get; set; }
+    public bool Throw { get; set; }
+
+    private AudioActionResult Do(string call, string message, string? app = null)
+    {
+        Calls.Add(call);
+        if (Throw) throw new System.Runtime.InteropServices.COMException("boom");
+        if (NoSession && app is not null) return AudioActionResult.Missing($"{app} isn't playing audio right now");
+        return AudioActionResult.Ok(message);
+    }
+
+    public IReadOnlyList<AudioSessionInfo> GetActiveSessions() => [];
+    public AudioActionResult ToggleAppMute(string processName) => Do("ToggleAppMute:" + processName, processName + " muted", processName);
+    public AudioActionResult StepAppVolume(string processName, int deltaPercent) =>
+        Do($"StepAppVolume:{processName}:{deltaPercent}", processName + " volume 50%", processName);
+    public AudioActionResult ToggleMicrophoneMute() => Do("ToggleMicrophoneMute", "Microphone muted");
+    public bool? IsMicrophoneMuted() => false;
+    public AudioActionResult ToggleSystemMute() => Do("ToggleSystemMute", "System sound muted");
+    public AudioActionResult StepSystemVolume(int deltaPercent) => Do("StepSystemVolume:" + deltaPercent, "System volume 50%");
+}
+
+sealed class FakeMediaKeys : IMediaKeySender
+{
+    public List<MediaKey> Sent { get; } = [];
+    public bool Succeed { get; set; } = true;
+    public bool Throw { get; set; }
+    public bool Send(MediaKey key)
+    {
+        if (Throw) throw new InvalidOperationException("SendInput blew up");
+        Sent.Add(key);
+        return Succeed;
+    }
 }
 
 sealed class FakeLauncher : IApplicationShortcutLauncher

@@ -15,5 +15,6 @@
     <Compile Include="..\..\Models\LightingEffect.cs" Link="Models\LightingEffect.cs" />
     <Compile Include="..\..\Models\EffectSpeedPolicy.cs" Link="Models\EffectSpeedPolicy.cs" />
     <Compile Include="..\..\Models\ColorPreset.cs" Link="Models\ColorPreset.cs" />
+    <Compile Include="..\..\Services\ColorText.cs" Link="Services\ColorText.cs" />
   </ItemGroup>
 </Project>

@@ -51,20 +51,31 @@ internal static class HidDiscovery
 
     public static HidIdentity? FindBoot()
     {
-        var matches = Enumerate().Where(x => x.Vid == ReleasePolicy.BootVid && x.Pid == ReleasePolicy.BootPid &&
-            x.Path.Contains("vid_0000&pid_2244", StringComparison.OrdinalIgnoreCase) &&
-            x.Path.Contains(ReleasePolicy.ValidatedBootHidInstance, StringComparison.OrdinalIgnoreCase)).ToArray();
+        var matches = Enumerate().Where(IsBoot).ToArray();
         return matches.Length == 1 ? matches[0] : null;
     }
 
-    public static bool IsValidatedNormal(HidIdentity x) =>
-        x.Vid == ReleasePolicy.NormalVid && x.Pid == ReleasePolicy.NormalPid &&
-        x.Version == ReleasePolicy.BcdDevice && x.Manufacturer == ReleasePolicy.Manufacturer &&
-        x.Product == ReleasePolicy.Product && x.Serial == ReleasePolicy.Serial &&
-        x.UsagePage == ReleasePolicy.UsagePage && x.Usage == ReleasePolicy.Usage &&
-        x.InputLength is 257 or 64 && x.OutputLength == 257 && x.FeatureLength == 9 &&
-        x.Path.Contains("vid_3142&pid_0c33&mi_04", StringComparison.OrdinalIgnoreCase) &&
-        x.Path.Contains(ReleasePolicy.ValidatedHidInstance, StringComparison.OrdinalIgnoreCase);
+    public static bool IsBoot(HidIdentity x) =>
+        x.Vid == ReleasePolicy.BootVid && x.Pid == ReleasePolicy.BootPid &&
+        x.Path.Contains("vid_0000&pid_2244", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsValidatedNormal(HidIdentity x) => DescribeNormalMismatch(x) is null;
+
+    // Returns the first identity check the interface fails, or null when it is
+    // the validated SC3 control interface. Used for detection and diagnostics.
+    public static string? DescribeNormalMismatch(HidIdentity x)
+    {
+        if (x.Vid != ReleasePolicy.NormalVid || x.Pid != ReleasePolicy.NormalPid) return $"VID/PID {x.Vid:X4}:{x.Pid:X4}";
+        if (!x.Path.Contains("vid_3142&pid_0c33&mi_04", StringComparison.OrdinalIgnoreCase)) return "not interface MI_04";
+        if (x.Version != ReleasePolicy.BcdDevice) return $"bcdDevice {x.Version:X4} (expected {ReleasePolicy.BcdDevice:X4})";
+        if (x.Manufacturer != ReleasePolicy.Manufacturer) return $"manufacturer '{x.Manufacturer}'";
+        if (x.Product != ReleasePolicy.Product) return $"product '{x.Product}'";
+        if (x.Serial != ReleasePolicy.Serial) return $"serial '{x.Serial}'";
+        if (x.UsagePage != ReleasePolicy.UsagePage || x.Usage != ReleasePolicy.Usage) return $"usage {x.UsagePage:X4}:{x.Usage:X4}";
+        if (x.InputLength is not (257 or 64) || x.OutputLength != 257 || x.FeatureLength != 9)
+            return $"report lengths in={x.InputLength} out={x.OutputLength} feature={x.FeatureLength}";
+        return null;
+    }
 
     private static HidIdentity? Inspect(string path)
     {

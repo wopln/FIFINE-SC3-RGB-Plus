@@ -3,20 +3,66 @@
 FIFINE SC3 RGB+ is a Windows application that adds customizable RGB lighting
 control and Custom Button Shortcuts to the FIFINE AmpliGame SC3 mixer.
 
-![FIFINE SC3 RGB+ application](docs/app-screenshot.png)
+![FIFINE SC3 RGB+: the mixer's LEDs changing color, the live lighting page, the five effects, the Custom A–D button picker, setup and updates, and accessibility](docs/brag.gif)
+
+*25-second tour. [Watch it with sound (MP4)](docs/brag.mp4).*
+
+![FIFINE SC3 RGB+ lighting page](docs/screenshots/lighting.png)
 
 ## Features
 
-- Custom RGB colors, color picker, and brightness control
-- Saved presets with reusable names and settings
+- Custom RGB colors, color wheel, hex/RGB entry, and brightness control, applied to the mixer live
+- RGB lighting on/off switch, and a one-click return to FIFINE's default lighting
+- Presets you can save, rename, and delete with Undo, plus 14 starter colors and a Random color button
 - Static, Breathing, Rainbow, Pulse, and Color Cycle effects
 - Adjustable 1–100% speed for animated effects, remembered per effect
-- Custom A/B/C/D application shortcuts for `.exe` and `.lnk` targets
+- Custom A/B/C/D button actions, chosen from a picker instead of a file dialog:
+  - **Open an app** from your Start menu list (including Store apps), or any `.exe`/`.lnk`
+  - **App audio:** mute/unmute or volume up/down for one app, such as Discord or Spotify
+  - **Microphone** mute/unmute
+  - **Media & volume:** play/pause, next, previous, system volume and mute
 - Background shortcut engine with Windows system tray controls
+- Accessible: full keyboard use with visible focus, screen-reader names and announcements, Windows High Contrast support, and text that stays readable on any chosen color
 - Integrated Settings for application updates, mixer firmware updates, and troubleshooting
 - Automatic application updates through GitHub Releases
 - Safe Restore Original Firmware and SC3 Recovery Mode support
 - Automatic SC3 detection, reconnect handling, and Start with Windows
+
+## What's new in this update
+
+**Works on every PC, not just one.** Earlier builds checked a USB device ID that Windows
+generates separately for each PC and USB port, so every SC3 except the original
+development machine was rejected as *"Unsupported or unvalidated SC3 revision"*.
+Detection now relies on the mixer's real identity: vendor/product ID, interface,
+descriptor strings, report layout and the firmware version reply. It was verified on
+a second PC and port, and the RGB+ Firmware 1.5 install was confirmed end to end.
+
+**Buttons say what they do.** Colors always applied live, but the old *Apply* button
+only saved, and *Stop* switched to FIFINE's lighting. The Lighting page now has a
+labelled **RGB lighting** switch and a banner when lighting is off. *Save changes*
+appears only when a preset is edited, and *Save as new* creates a preset and lets you
+name it right away. Deleting a preset can be undone.
+
+**Custom buttons do real actions.** Instead of browsing for an `.exe`, pick from your
+apps, or make a button mute Discord, step Spotify's volume, mute your mic or
+skip a track.
+
+| Custom button picker | Custom buttons |
+|---|---|
+| ![Choose what Custom B does: Media & volume](docs/screenshots/picker-media.png) | ![Settings › Custom buttons](docs/screenshots/settings-custom-buttons.png) |
+
+**Built for everyone.**
+- Every control has a visible keyboard focus ring and a screen-reader name, role and state.
+- Status changes are announced aloud.
+- The color wheel accepts a typed hex code from assistive tech, with Page Up/Down for hue.
+- Windows High Contrast is supported.
+- Text keeps WCAG contrast (4.5:1) on any chosen color, which fixes white-on-white with light colors.
+- The window resizes, snaps, and fits 1366×768 screens at 125% scaling.
+
+**Under the hood:** 5 new firmware-detection regression tests and 9 new Custom-button
+action tests (41 checks in total). The fader check also showed that the SC3's faders
+and knobs work inside the mixer and send no data to the PC, so per-app fader mapping
+isn't possible with the current firmware.
 
 ## Supported hardware
 
@@ -67,6 +113,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
 The script validates the production firmware package, builds the Windows app and
 native updater, creates the installer, and generates the update manifest and
 SHA-256 checksum.
+
+`firmware/recovery/` is git-ignored, so the build needs the validated
+`SC3_V22_recovery.MVA` placed there before it runs. Its expected SHA-256 is in
+`scripts/build-release.ps1`.
+
+Run the test suites with:
+
+```powershell
+dotnet run --project Updater\SC3FirmwareTool.Tests -c Release
+dotnet run --project Updater\CustomButtons.Tests -c Release
+dotnet run --project Updater\ApplicationUpdate.Tests -c Release
+```
 
 ## License
 

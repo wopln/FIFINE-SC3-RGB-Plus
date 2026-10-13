@@ -1,3 +1,5 @@
+using SC3RGBController.Services.Actions;
+
 namespace SC3RGBController.Services;
 
 public enum CustomShortcutRuntimeState { Stock, Active, Unavailable }
@@ -39,9 +41,12 @@ public sealed class CustomButtonShortcutController : IAsyncDisposable
     public bool IsRunning => _pollTask is { IsCompleted: false };
 
     public CustomButtonShortcutController(HidDeviceClient hid, Func<CustomButtonId, string?> pathResolver)
-        : this(hid, pathResolver, new ApplicationShortcutLauncher(), TimeSpan.Zero, TimeSpan.FromSeconds(5),
+        : this(hid, pathResolver, new CustomButtonActionRunner(), TimeSpan.Zero, TimeSpan.FromSeconds(5),
             eventDrivenTransportAllowed: CustomShortcutStabilityPolicy.EventDrivenTransportEnabled)
     {
+        // Audio/media actions report their own result ("Discord muted", "System volume 40%").
+        if (_launcher is CustomButtonActionRunner runner)
+            runner.Feedback += (_, message) => ActionStatus?.Invoke(this, message);
     }
 
     public CustomButtonShortcutController(
@@ -186,9 +191,13 @@ public sealed class CustomButtonShortcutController : IAsyncDisposable
         if (!_tracker.TryAccept(reply.KeyId, reply.Counter, out CustomButtonId button))
             return;
 
+        string? assignment = _pathResolver(button);
         ShortcutLaunchResult result = _launcher.Launch(
             IsActive && _desiredEnabled,
-            _pathResolver(button));
+            assignment);
+        // Audio/media actions report their own feedback; these messages are for launches only.
+        if (!CustomButtonActionRunner.IsLaunchKind(CustomButtonAction.Parse(assignment).Kind))
+            return;
         if (result == ShortcutLaunchResult.MissingTarget)
             ActionStatus?.Invoke(this, "Application not found");
         else if (result is ShortcutLaunchResult.Failed or ShortcutLaunchResult.UnsupportedTarget)

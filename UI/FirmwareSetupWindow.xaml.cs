@@ -1,5 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Controls;
+using System.Windows.Input;
 using SC3FirmwareTool.Core;
 
 namespace SC3RGBController.UI;
@@ -48,12 +51,12 @@ public partial class FirmwareSetupWindow : Window
             Outcome = value.State;
 
         Progress.Value = value.Percent;
-        StageText.Text = _mode == FirmwareWindowMode.RestoreStock
+        SetLiveText(StageText, _mode == FirmwareWindowMode.RestoreStock
             ? RestoreStage(value)
-            : InstallStage(value);
-        DetailText.Text = _mode == FirmwareWindowMode.RestoreStock
+            : InstallStage(value));
+        SetLiveText(DetailText, _mode == FirmwareWindowMode.RestoreStock
             ? RestoreDetail(value)
-            : InstallDetail(value);
+            : InstallDetail(value));
     });
 
     private static string InstallStage(UpdateProgress value) => value.State switch
@@ -121,7 +124,7 @@ public partial class FirmwareSetupWindow : Window
         catch (Exception ex)
         {
             if (ex is FirmwareUpdateException firmwareError) Outcome = firmwareError.Outcome;
-            DetailText.Text = _mode == FirmwareWindowMode.RestoreStock
+            string failureDetail = _mode == FirmwareWindowMode.RestoreStock
                 ? Outcome switch
                 {
                     UpdaterState.RestoreFailedDeviceHealthy => "Restore failed, but your SC3 is working normally. Details were saved in the log.",
@@ -136,15 +139,22 @@ public partial class FirmwareSetupWindow : Window
                     UpdaterState.RecoveryRequired => "The update did not complete and the SC3 could not be proven healthy or safely retryable. Recovery is required.",
                     _ => ex.Message
                 };
+            SetLiveText(DetailText, failureDetail, force: true);
         }
         finally
         {
             _running = false;
             _service.ProgressChanged -= OnProgress;
             if (_success)
+            {
                 DialogResult = true;
+            }
             else
+            {
                 CloseButton.IsEnabled = true;
+                // Give keyboard and screen reader users a place to land once the operation has stopped.
+                CloseButton.Focus();
+            }
         }
     }
 
@@ -153,5 +163,26 @@ public partial class FirmwareSetupWindow : Window
     {
         if (_running) return;
         if (_success) DialogResult = true; else Close();
+    }
+
+    // Escape (and Enter) close the window once the operation has finished; ignored while firmware is being written.
+    // Handled here instead of IsCancel/IsDefault so the existing close logic in CloseButton_Click stays the only path.
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Escape or Key.Enter)) return;
+        if (_running || !CloseButton.IsEnabled) { e.Handled = e.Key == Key.Escape; return; }
+        e.Handled = true;
+        CloseButton_Click(CloseButton, new RoutedEventArgs());
+    }
+
+    /// <summary>Sets status text and raises LiveRegionChanged (LiveSetting is Polite in XAML) when it changes.</summary>
+    private static void SetLiveText(TextBlock target, string text, bool force = false)
+    {
+        bool changed = !string.Equals(target.Text, text, StringComparison.Ordinal);
+        target.Text = text;
+        if (!changed && !force) return;
+        if (!AutomationPeer.ListenerExists(AutomationEvents.LiveRegionChanged)) return;
+        AutomationPeer? peer = UIElementAutomationPeer.FromElement(target) ?? UIElementAutomationPeer.CreatePeerForElement(target);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 }

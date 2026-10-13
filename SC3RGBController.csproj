@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SC3RGBController</AssemblyName>
@@ -20,10 +21,11 @@
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
+    <!-- WinForms is only used for the tray icon; keep WPF types unambiguous. -->
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
     <Compile Remove="Updater\**\*.cs" />
     <Compile Remove="work\**\*.cs" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Drawing.Common" />
     <Compile Remove="captures\**\*.cs" />
     <ProjectReference Include="Updater\SC3FirmwareTool.Core\SC3FirmwareTool.Core.csproj" />
     <None Remove="Assets\*.png" />

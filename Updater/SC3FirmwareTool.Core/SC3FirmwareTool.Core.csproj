@@ -6,6 +6,9 @@
     <AssemblyName>SC3FirmwareTool.Core</AssemblyName>
   </PropertyGroup>
   <Import Project="..\..\Version.props" />
+  <ItemGroup>
+    <InternalsVisibleTo Include="SC3FirmwareTool.Tests" />
+  </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>

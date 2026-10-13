@@ -3,7 +3,10 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -12,6 +15,7 @@ using System.Windows.Threading;
 using SC3RGBController.Models;
 using SC3RGBController.Services;
 using SC3RGBController.Services.Updates;
+using SC3RGBController.Services.Actions;
 using SC3RGBController.UI.Controls;
 using SC3RGBController.UI;
 using SC3FirmwareTool.Core;
@@ -32,6 +36,7 @@ public partial class MainWindow : Window
     private readonly TrayCommandRouter _trayCommands = new();
     private readonly SystemTrayService _tray;
     private readonly FirmwareService _firmwareService = new();
+    private readonly Services.Audio.AudioControlService _audio = new();
     private readonly ApplicationUpdateService _applicationUpdateService = ApplicationUpdateService.CreateDefault(AppVersionInfo.Current);
     private readonly object _colorGate = new();
     private readonly DispatcherTimer _statusTimer;
@@ -52,7 +57,12 @@ public partial class MainWindow : Window
     private bool _isStreaming;
     private bool _isConnected;
     private bool _liveApplyPending;
-    private bool _isAddingPreset;
+    private bool _syncingNavigation;
+    private string? _lastStreamFailure;
+    private bool _syncingEffect;
+    private bool _syncingPresetName;
+    private (ColorPreset Preset, int Index, bool WasSelected)? _lastDeletedPreset;
+    private CancellationTokenSource? _undoCancellation;
     private bool _suppressPresetDirty;
     private bool _stopRestoredStockMode;
     private bool _firmwareChecked;
@@ -89,9 +99,14 @@ public partial class MainWindow : Window
             SettingsStore.Save(_settings);
         }
         UpdateStartupRegistration();
-        AppVersionText.Text = $"App: {AppVersionInfo.Current}";
+        AppVersionText.Text = $"App version {AppVersionInfo.Current}";
         IntegratedSettingsView.ConfigureUpdates(AppVersionInfo.DisplayVersion, _settings.AutomaticallyCheckForUpdates);
+        DescribeLegacyCustomAssignments();
         IntegratedSettingsView.ConfigureCustomButtons(_settings);
+        IntegratedSettingsView.CurrentActionProvider = GetCustomButtonPath;
+        IntegratedSettingsView.AudioAppsProvider = () => _audio.GetActiveSessions()
+            .Select(s => (s.ProcessName, s.DisplayName)).ToList();
+        _ = Services.Apps.InstalledAppCatalog.Shared.GetAppsAsync(); // warm the picker's app list
         _customButtons = new CustomButtonShortcutController(_hid, GetCustomButtonPath);
         _customButtons.StateChanged += CustomButtons_StateChanged;
         _customButtons.ActionStatus += (_, message) => Dispatcher.BeginInvoke(() => ShowInlineStatus(message));
@@ -154,9 +169,10 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+
         _syncingFields = true;
         BrightnessSlider.Value = Math.Clamp(_settings.Brightness, 0, 100);
-        StartWithWindowsToggle.IsChecked = _settings.StartWithWindows;
+        IntegratedSettingsView.SetStartWithWindows(_settings.StartWithWindows);
         _syncingFields = false;
 
         if (!TrySetFromHex(_settings.LastHex, false))
@@ -208,20 +224,6 @@ public partial class MainWindow : Window
         await ExitApplicationAsync();
     }
 
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ClickCount == 2)
-        {
-            ToggleMaximize();
-            return;
-        }
-
-        if (e.ButtonState == MouseButtonState.Pressed)
-        {
-            DragMove();
-        }
-    }
-
     private void MinimizeButton_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void MaximizeButton_Click(object sender, RoutedEventArgs e) => ToggleMaximize();
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
@@ -230,8 +232,28 @@ public partial class MainWindow : Window
     private void Window_StateChanged(object? sender, EventArgs e)
     {
         bool maximized = WindowState == WindowState.Maximized;
-        WindowFrame.CornerRadius = new CornerRadius(maximized ? 0 : 20);
-        MaximizeButton.Content = maximized ? "❐" : "□";
+        // A maximized WindowChrome window extends past the monitor by the resize border.
+        WindowFrame.Margin = maximized ? new Thickness(7) : new Thickness(0);
+        MaximizeButton.Content = maximized ? "" : "";
+        string label = maximized ? "Restore" : "Maximize";
+        AutomationProperties.SetName(MaximizeButton, label);
+        MaximizeButton.ToolTip = label;
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        bool ctrl = Keyboard.Modifiers == ModifierKeys.Control;
+        bool typing = Keyboard.FocusedElement is TextBox;
+        if (ctrl && e.Key == Key.D1) { ShowMainPage(MainPage.Lighting); e.Handled = true; }
+        else if (ctrl && e.Key == Key.OemComma) { ShowMainPage(MainPage.Settings); e.Handled = true; }
+        else if (_currentPage == MainPage.Settings && e.Key == Key.Escape) { ShowMainPage(MainPage.Lighting); e.Handled = true; }
+        else if (_currentPage != MainPage.Lighting) return;
+        else if (ctrl && e.Key == Key.S) { if (ApplyButton.IsVisible) ApplyButton_Click(ApplyButton, e); e.Handled = true; }
+        else if (ctrl && e.Key == Key.N) { AddPresetButton_Click(AddPresetButton, e); e.Handled = true; }
+        else if (ctrl && e.Key == Key.R) { RandomColorButton_Click(RandomColorButton, e); e.Handled = true; }
+        else if (ctrl && e.Key == Key.L && LightingSwitch.IsEnabled) { ToggleLightingState(); e.Handled = true; }
+        else if (ctrl && e.Key == Key.Z && !typing && _lastDeletedPreset is not null) { UndoDeletePreset(); e.Handled = true; }
+        else if (e.Key == Key.F2 && PresetEditorPanel.IsVisible) { PresetNameBox.Focus(); PresetNameBox.SelectAll(); e.Handled = true; }
     }
 
     private void ColorPicker_SelectedColorChanged(object? sender, EventArgs e)
@@ -245,7 +267,7 @@ public partial class MainWindow : Window
         if (!IsLoaded || _syncingFields) return;
         if (ColorText.TryParseHex(HexBox.Text, out Color color))
         {
-            HexBox.BorderBrush = new SolidColorBrush(Color.FromRgb(56, 56, 56));
+            HexBox.ClearValue(BorderBrushProperty);
             SetSelectedColor(color, true);
         }
     }
@@ -255,9 +277,9 @@ public partial class MainWindow : Window
         if (_syncingFields) return;
         if (!TrySetFromHex(HexBox.Text, true))
         {
-            HexBox.BorderBrush = new SolidColorBrush(Color.FromRgb(255, 77, 94));
+            HexBox.BorderBrush = (Brush)FindResource("DisconnectedBrush");
             SyncFieldsFromColor();
-            ShowInlineStatus("Invalid HEX value · use #RRGGBB");
+            ShowInlineStatus("That isn't a valid color code. Use # and six digits, like #FF7800.");
         }
     }
 
@@ -329,11 +351,26 @@ public partial class MainWindow : Window
 
     private void PresetCard_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: ColorPreset preset }) return;
+        // Checked also fires when RefreshPresetVisualState re-selects via binding; ignore that echo.
+        if (sender is not FrameworkElement { Tag: ColorPreset preset } || preset.Id == _selectedPresetId) return;
+        SelectPreset(preset);
+    }
+
+    // Clicking the already-selected preset discards unsaved edits (Checked doesn't fire then).
+    private void PresetTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ColorPreset preset } && preset.Id == _selectedPresetId && preset.IsDirty)
+        {
+            SelectPreset(preset);
+            ShowInlineStatus($"Reverted to the saved \"{preset.DisplayName}\".");
+        }
+    }
+
+    private void SelectPreset(ColorPreset preset)
+    {
         if (!ColorText.TryParseHex(preset.Hex, out Color color)) return;
 
         _suppressPresetDirty = true;
-        _isAddingPreset = false;
         _selectedPresetId = preset.Id;
         _settings.SelectedPresetId = preset.Id;
         _syncingFields = true;
@@ -346,18 +383,44 @@ public partial class MainWindow : Window
         QueueSettingsSave();
     }
 
+    // Save as new: create the preset immediately and put the cursor in its name field.
     private void AddPresetButton_Click(object sender, RoutedEventArgs e)
     {
-        _isAddingPreset = true;
-        _selectedPresetId = null;
-        _settings.SelectedPresetId = null;
+        ColorPreset preset = new()
+        {
+            Name = $"My color {_presets.Count(p => p.Name.StartsWith("My color", StringComparison.Ordinal)) + 1}",
+            Hex = CurrentHex,
+            Brightness = CurrentBrightness,
+            Order = _presets.Count
+        };
+        _presets.Add(preset);
+        _selectedPresetId = preset.Id;
+        _settings.SelectedPresetId = preset.Id;
+        NormalizeOrders();
         RefreshPresetVisualState();
-        PresetHintText.Text = "New preset ready · choose Apply to save";
+        SaveSettingsNow();
+        ShowInlineStatus($"Saved new preset \"{preset.DisplayName}\". Type a name to rename it.");
+        Dispatcher.BeginInvoke(() => { PresetNameBox.Focus(); PresetNameBox.SelectAll(); }, DispatcherPriority.Input);
     }
 
     private void DeletePresetButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: ColorPreset preset }) return;
+        if (sender is not FrameworkElement { Tag: ColorPreset preset }) return;
+        DeletePreset(preset);
+        e.Handled = true;
+    }
+
+    private void PresetTile_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete || sender is not FrameworkElement { Tag: ColorPreset preset }) return;
+        DeletePreset(preset);
+        e.Handled = true;
+    }
+
+    private void DeletePreset(ColorPreset preset)
+    {
+        int index = _presets.IndexOf(preset);
+        if (index < 0) return;
         bool wasSelected = preset.Id == _selectedPresetId;
         _presets.Remove(preset);
         if (wasSelected)
@@ -365,40 +428,90 @@ public partial class MainWindow : Window
             _selectedPresetId = null;
             _settings.SelectedPresetId = null;
         }
-        _isAddingPreset = false;
         NormalizeOrders();
         RefreshPresetVisualState();
         SaveSettingsNow();
-        ShowInlineStatus("Preset deleted");
-        e.Handled = true;
+
+        _lastDeletedPreset = (preset, index, wasSelected);
+        UndoDeleteButton.Visibility = Visibility.Visible;
+        ShowInlineStatus($"Deleted \"{preset.DisplayName}\".");
+        _ = HideUndoLaterAsync();
+
+        // Keep keyboard users in the list: focus the neighbouring tile, or Save as new.
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_presets.Count == 0) { AddPresetButton.Focus(); return; }
+            ColorPreset next = _presets[Math.Min(index, _presets.Count - 1)];
+            if (PresetItemsControl.ItemContainerGenerator.ContainerFromItem(next) is DependencyObject container &&
+                FindDescendant<RadioButton>(container) is { } tile)
+                tile.Focus();
+        }, DispatcherPriority.Loaded);
     }
 
+    private async Task HideUndoLaterAsync()
+    {
+        _undoCancellation?.Cancel();
+        _undoCancellation = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), _undoCancellation.Token);
+            UndoDeleteButton.Visibility = Visibility.Collapsed;
+            _lastDeletedPreset = null;
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void UndoDeleteButton_Click(object sender, RoutedEventArgs e) => UndoDeletePreset();
+
+    private void UndoDeletePreset()
+    {
+        if (_lastDeletedPreset is not { } deleted) return;
+        _undoCancellation?.Cancel();
+        _presets.Insert(Math.Min(deleted.Index, _presets.Count), deleted.Preset);
+        _lastDeletedPreset = null;
+        UndoDeleteButton.Visibility = Visibility.Collapsed;
+        NormalizeOrders();
+        if (deleted.WasSelected) SelectPreset(deleted.Preset);
+        else RefreshPresetVisualState();
+        SaveSettingsNow();
+        ShowInlineStatus($"Restored \"{deleted.Preset.DisplayName}\".");
+    }
+
+    private void PresetNameBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_syncingPresetName) return;
+        if (_presets.FirstOrDefault(p => p.Id == _selectedPresetId) is not { } preset) return;
+        preset.Name = PresetNameBox.Text.Trim();
+        QueueSettingsSave();
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } nested) return nested;
+        }
+        return null;
+    }
+
+    // Save changes to the selected preset (or save as a new one when none is selected).
     private async void ApplyButton_Click(object sender, RoutedEventArgs e)
     {
         ColorPreset? selected = _presets.FirstOrDefault(p => p.Id == _selectedPresetId);
         if (selected is null)
         {
-            selected = new ColorPreset
-            {
-                Name = string.Empty,
-                Hex = CurrentHex,
-                Brightness = CurrentBrightness,
-                Order = _presets.Count
-            };
-            _presets.Add(selected);
-            _selectedPresetId = selected.Id;
-            _settings.SelectedPresetId = selected.Id;
-            _isAddingPreset = false;
-        }
-        else
-        {
-            selected.Hex = CurrentHex;
-            selected.Brightness = CurrentBrightness;
+            AddPresetButton_Click(sender, e);
+            return;
         }
 
+        selected.Hex = CurrentHex;
+        selected.Brightness = CurrentBrightness;
         NormalizeOrders();
         RefreshPresetVisualState();
         SaveSettingsNow();
+        ShowInlineStatus($"Saved changes to \"{selected.DisplayName}\".");
         await ShowApplyFeedbackAsync("Saved");
     }
 
@@ -409,17 +522,17 @@ public partial class MainWindow : Window
         await StopStreamingAsync();
         if (!_firmwareChecked || !_modInstalled)
         {
-            ShowInlineStatus("RGB setup required");
+            ShowInlineStatus("RGB control isn't set up on this SC3 yet.");
             return;
         }
-        if (_hid.TryOpen(out string openDetail) && _hid.TryDisableCustomRgb(out string restoreDetail))
+        if (_hid.TryOpen(out string openDetail) && _hid.TryDisableCustomRgb(out _))
         {
-            ShowInlineStatus(restoreDetail);
+            ShowInlineStatus("Showing FIFINE's default lighting. Change a color to take over again.");
             _stopRestoredStockMode = true;
         }
         else
         {
-            ShowInlineStatus($"Stopped sending · {openDetail}");
+            ShowInlineStatus($"Couldn't switch to the default lighting ({openDetail}). Try Reconnect.");
         }
         await RefreshDeviceStatusAsync();
     }
@@ -435,19 +548,25 @@ public partial class MainWindow : Window
         _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
         _stopRestoredStockMode = false;
         await RefreshDeviceStatusAsync();
-        ShowInlineStatus(_isConnected ? "Reconnected" : "SC3 not detected");
+        ShowInlineStatus(_isConnected ? "Reconnected to your SC3." : "SC3 not found. Check the USB cable and try a port on the PC itself.");
     }
 
-    private void LightingButton_Click(object sender, RoutedEventArgs e)
+    // Checked/Unchecked (not Click) so mouse, keyboard and UI Automation Toggle all work.
+    private void LightingSwitch_Changed(object sender, RoutedEventArgs e)
     {
-        if (_firmwareOperationActive) return;
-        ShowMainPage(MainPage.Lighting);
+        if (!IsLoaded || (LightingSwitch.IsChecked == true) == _settings.IsLightingEnabled) return;
         ToggleLightingState();
+    }
+
+    private void TurnLightingOnButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_settings.IsLightingEnabled) ToggleLightingState();
+        LightingSwitch.Focus();
     }
 
     private void ToggleLightingState()
     {
-        if (_firmwareOperationActive) return;
+        if (_firmwareOperationActive) { UpdateLightingVisual(); return; }
         _settings.IsLightingEnabled = !_settings.IsLightingEnabled;
         UpdateLightingVisual();
         SaveSettingsNow();
@@ -456,22 +575,20 @@ public partial class MainWindow : Window
         {
             _stopRestoredStockMode = false;
             QueueLiveApply();
-            ShowInlineStatus("Lighting restored");
+            ShowInlineStatus("RGB lighting on.");
         }
         else
         {
             // Keep the desired base color, brightness, and selected preset intact.
             // Only the output target becomes black through the existing sender.
             ApplySelectedColor();
-            ShowInlineStatus("Lighting off");
+            ShowInlineStatus("RGB lighting off.");
         }
     }
 
-    private void StartWithWindowsToggle_Changed(object sender, RoutedEventArgs e)
+    private void IntegratedSettingsView_StartWithWindowsChanged(object? sender, EventArgs e)
     {
-        if (_syncingFields || StartWithWindowsToggle is null) return;
-
-        bool enabled = StartWithWindowsToggle.IsChecked == true;
+        bool enabled = IntegratedSettingsView.StartWithWindowsEnabled;
         if (_settings.StartWithWindows == enabled) return;
 
         _settings.StartWithWindows = enabled;
@@ -481,7 +598,7 @@ public partial class MainWindow : Window
 
     private void EffectButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string effectName } ||
+        if (_syncingEffect || sender is not FrameworkElement { Tag: string effectName } ||
             !Enum.TryParse(effectName, ignoreCase: true, out LightingEffect effect)) return;
 
         if (_selectedEffect == effect) return;
@@ -501,12 +618,12 @@ public partial class MainWindow : Window
         if (_firmwareOperationActive) return;
         if (!_firmwareChecked || !_modInstalled)
         {
-            ShowInlineStatus("RGB setup required");
+            ShowInlineStatus("RGB control isn't set up on this SC3 yet.");
             return;
         }
         if (!HidDeviceClient.RgbWritesEnabled)
         {
-            ShowInlineStatus("Safety hold · RGB write is unavailable");
+            ShowInlineStatus("RGB output is paused for safety. Try Reconnect.");
             return;
         }
 
@@ -522,9 +639,6 @@ public partial class MainWindow : Window
         if (_firmwareOperationActive || !_firmwareChecked || !_modInstalled) return;
         if (_streamTask is { IsCompleted: false })
         {
-            ShowInlineStatus(_settings.IsLightingEnabled
-                ? $"Updated output · #{_appliedColor.R:X2}{_appliedColor.G:X2}{_appliedColor.B:X2}"
-                : "Lighting remains off");
             return;
         }
 
@@ -533,7 +647,7 @@ public partial class MainWindow : Window
         _isStreaming = true;
         StopButton.IsEnabled = true;
         _streamTask = Task.Run(() => StreamLoopAsync(_streamCancellation.Token));
-        ShowInlineStatus(_settings.IsLightingEnabled ? "Applying color…" : "Turning lighting off…");
+
     }
 
     // Existing HID stream logic preserved: it writes only changed colors and retries safely.
@@ -574,10 +688,23 @@ public partial class MainWindow : Window
 
                 if (DateTime.UtcNow >= nextUiUpdate)
                 {
+                    bool success = lastSuccess;
+                    string detail = lastDetail;
                     await Dispatcher.InvokeAsync(() =>
                     {
-                        UpdateConnectionVisual(lastSuccess || _hid.IsConnected, lastDetail);
-                        ShowInlineStatus(lastDetail);
+                        UpdateConnectionVisual(success || _hid.IsConnected, detail);
+                        // Routine writes stay silent so user messages remain visible and
+                        // screen readers are not flooded; only failures and recovery are reported.
+                        if (!success && detail != _lastStreamFailure)
+                        {
+                            _lastStreamFailure = detail;
+                            ShowInlineStatus($"Lighting can't reach the SC3 ({detail}). Retrying…");
+                        }
+                        else if (success && _lastStreamFailure is not null)
+                        {
+                            _lastStreamFailure = null;
+                            ShowInlineStatus("Lighting is reaching the SC3 again.");
+                        }
                     });
                     nextUiUpdate = DateTime.UtcNow.AddMilliseconds(500);
                 }
@@ -630,8 +757,8 @@ public partial class MainWindow : Window
             _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
             _finalMod15Capability = false;
             _firmwareStatus = restoreDetection!.NormalStatus;
-            FirmwareVersionText.Text = "FW: Recovery Mode";
-            FirmwareSetupButton.Visibility = Visibility.Collapsed;
+            FirmwareVersionText.Text = "Firmware: recovery mode";
+            SetRgbSetupRequired(false);
         }
         else if (!connected)
         {
@@ -642,8 +769,8 @@ public partial class MainWindow : Window
             _finalMod15Capability = false;
             _firmwareUpdateOfferShown = false;
             _firmwareStatus = null;
-            FirmwareVersionText.Text = "FW: Not detected";
-            FirmwareSetupButton.Visibility = Visibility.Collapsed;
+            FirmwareVersionText.Text = "Firmware: not detected";
+            SetRgbSetupRequired(false);
         }
         else if (!_firmwareChecked)
         {
@@ -668,8 +795,7 @@ public partial class MainWindow : Window
                 ? firmware with { ModInstalled = true, Message = FirmwareReadyMessage(flavor) }
                 : firmware;
             FirmwareVersionText.Text = FirmwareVersionLabel(flavor);
-            FirmwareSetupButton.Visibility = firmware.ValidatedProfile && flavor == Sc3FirmwareFlavor.Stock
-                ? Visibility.Visible : Visibility.Collapsed;
+            SetRgbSetupRequired(firmware.ValidatedProfile && flavor == Sc3FirmwareFlavor.Stock);
         }
 
         RefreshFirmwareUpdatePresentation(connected);
@@ -711,39 +837,38 @@ public partial class MainWindow : Window
 
     private void UpdateConnectionVisual(bool connected, string detail)
     {
-        if (_isConnected != connected)
+        if (_isConnected != connected && SystemParameters.ClientAreaAnimation)
         {
             DoubleAnimation fade = new(0.35, 1, TimeSpan.FromMilliseconds(180));
             StatusDot.BeginAnimation(OpacityProperty, fade);
             SidebarConnectionText.BeginAnimation(OpacityProperty, fade);
             FooterConnectionText.BeginAnimation(OpacityProperty, fade);
         }
+        bool changed = _isConnected != connected;
         _isConnected = connected;
         bool recovery = _recoveryModeDetected;
-        Brush stateBrush = (Brush)FindResource(connected ? "ConnectedBrush" : recovery ? "MutedBrush" : "DisconnectedBrush");
+        Brush stateBrush = (Brush)FindResource(connected ? "ConnectedBrush" : recovery ? "WarningBrush" : "DisconnectedBrush");
         bool rgbReady = connected && !_firmwareOperationActive && _firmwareChecked && _modInstalled && _firmwareStatus?.ValidatedProfile == true;
-        Brush readyBrush = (Brush)FindResource(rgbReady ? "ConnectedBrush" : "MutedBrush");
         StatusDot.Fill = stateBrush;
-        DeviceHealthIcon.Stroke = stateBrush;
-        DeviceHealthTitle.Text = recovery ? "SC3 Recovery Mode" : "Device Status";
-        SidebarConnectionText.Text = recovery ? "Recovery Mode" : connected ? "Connected" : "Disconnected";
+        SidebarConnectionText.Text = recovery ? "Recovery mode" : connected ? "Connected" : "Not connected";
         SidebarConnectionText.Foreground = stateBrush;
-        DeviceHealthDetail.Text = recovery
-            ? "SC3 detected in recovery mode. A firmware update may not have completed."
-            : !connected ? "Device not detected."
-            : !_firmwareChecked ? "Checking firmware state…"
-            : _firmwareStatus?.ValidatedProfile == true && _modInstalled ? FirmwareReadyMessage(_firmwareFlavor)
-            : _firmwareStatus?.ValidatedProfile == true ? "SC3 is working normally. RGB setup required."
-            : _firmwareStatus?.Message ?? "Firmware state is not verified.";
-        FooterConnectionText.Text = recovery ? "FIFINE SC3 recovery bootloader detected" : connected ? "Connected to FIFINE SC3" : "FIFINE SC3 disconnected";
-        FooterConnectionText.Foreground = stateBrush;
+        DeviceHealthDetail.Text = _firmwareOperationActive ? "Firmware operation in progress. Keep the mixer plugged in."
+            : recovery ? "The mixer is waiting for firmware. Restore it from Settings › Troubleshooting."
+            : !connected ? "Plug the SC3 into a USB port on your PC."
+            : !_firmwareChecked ? "Checking firmware…"
+            : _firmwareStatus?.ValidatedProfile == true && _modInstalled ? "Ready for RGB control."
+            : _firmwareStatus?.ValidatedProfile == true ? "Working normally. RGB control needs a one-time setup."
+            : _firmwareStatus?.Message ?? "Firmware state could not be verified.";
+        FooterConnectionText.Text = recovery ? "SC3 in recovery mode" : connected ? "SC3 connected over USB" : "SC3 not connected";
         FooterReadyText.Text = FirmwarePresentationPolicy.ReadyLabel(_firmwareStatus, recovery, _firmwareOperationActive);
-        FooterReadyText.Foreground = readyBrush;
+        FooterReadyText.Foreground = (Brush)FindResource(rgbReady ? "ConnectedBrush" : "SecondaryTextBrush");
         ApplyButton.IsEnabled = !_firmwareOperationActive; // Presets remain saved; output writes stay blocked during firmware operations.
         StopButton.IsEnabled = !_firmwareOperationActive && (rgbReady || _isStreaming);
         FooterReconnectButton.IsEnabled = !_firmwareOperationActive && !recovery;
-        LightingButton.IsEnabled = !_firmwareOperationActive && !recovery;
-        SettingsButton.IsEnabled = !_firmwareOperationActive;
+        LightingSwitch.IsEnabled = !_firmwareOperationActive && !recovery;
+        SettingsNavItem.IsEnabled = !_firmwareOperationActive;
+        LightingNavItem.IsEnabled = !_firmwareOperationActive;
+        if (changed) Announce(SidebarConnectionText);
     }
 
     private async void FirmwareSetupButton_Click(object sender, RoutedEventArgs e)
@@ -849,10 +974,15 @@ public partial class MainWindow : Window
             ShowInlineStatus("SC3 recovery required");
     }
 
-    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    private void LightingNavItem_Checked(object sender, RoutedEventArgs e)
     {
-        if (_firmwareOperationActive) return;
-        IntegratedSettingsView.SelectCustomButtons();
+        if (!_syncingNavigation && IsLoaded) ShowMainPage(MainPage.Lighting);
+    }
+
+    private void SettingsNavItem_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_syncingNavigation || !IsLoaded) return;
+        if (_firmwareOperationActive) { ShowMainPage(_currentPage); return; }
         ShowMainPage(MainPage.Settings);
     }
 
@@ -977,6 +1107,26 @@ public partial class MainWindow : Window
         CustomButtonId.C => _settings.CustomCPath,
         _ => _settings.CustomDPath
     };
+
+    // Assignments saved before actions existed store a bare file name ("notepad"); show them as "Open notepad".
+    private void DescribeLegacyCustomAssignments()
+    {
+        foreach (CustomButtonId button in Enum.GetValues<CustomButtonId>())
+        {
+            string? path = GetCustomButtonPath(button);
+            CustomButtonAction action = CustomButtonAction.Parse(path);
+            string? name = button switch
+            {
+                CustomButtonId.A => _settings.CustomAName,
+                CustomButtonId.B => _settings.CustomBName,
+                CustomButtonId.C => _settings.CustomCName,
+                _ => _settings.CustomDName
+            };
+            if (action.Kind == CustomActionKind.LaunchProgram && !string.IsNullOrWhiteSpace(name) &&
+                !name.StartsWith("Open ", StringComparison.Ordinal))
+                SetCustomButtonAssignment(button, path, action.Describe(name));
+        }
+    }
 
     private void SetCustomButtonAssignment(CustomButtonId button, string? path, string? name)
     {
@@ -1181,17 +1331,16 @@ public partial class MainWindow : Window
 
     private void RefreshMainNavigationVisuals()
     {
-        Brush activeBrush = (Brush)FindResource("ConnectedBrush");
-        Brush inactiveBrush = new SolidColorBrush(Color.FromRgb(38, 38, 38));
-        Brush activeBackground = new SolidColorBrush(Color.FromRgb(21, 27, 23));
+        _syncingNavigation = true;
+        LightingNavItem.IsChecked = _currentPage == MainPage.Lighting;
+        SettingsNavItem.IsChecked = _currentPage == MainPage.Settings;
+        _syncingNavigation = false;
+    }
 
-        bool lightingOn = _settings.IsLightingEnabled;
-        bool settingsActive = _currentPage == MainPage.Settings;
-        LightingButton.BorderBrush = lightingOn ? activeBrush : inactiveBrush;
-        LightingButton.Background = lightingOn ? activeBackground : Brushes.Transparent;
-        LightingTitleText.Foreground = lightingOn ? activeBrush : (Brush)FindResource("TextBrush");
-        SettingsButton.BorderBrush = settingsActive ? activeBrush : inactiveBrush;
-        SettingsButton.Background = settingsActive ? activeBackground : Brushes.Transparent;
+    private void SetRgbSetupRequired(bool required)
+    {
+        FirmwareSetupButton.Visibility = required ? Visibility.Visible : Visibility.Collapsed;
+        SetupBar.Visibility = FirmwareSetupButton.Visibility;
     }
 
     private async Task RestoreOriginalFirmwareAsync()
@@ -1245,7 +1394,7 @@ public partial class MainWindow : Window
             MessageBox.Show(this,
                 "SC3 restored successfully\n\nOriginal firmware is installed.",
                 "Restore Original Firmware", MessageBoxButton.OK, MessageBoxImage.Information);
-            ShowInlineStatus("RGB setup required");
+            ShowInlineStatus("RGB control isn't set up on this SC3 yet.");
             return;
         }
 
@@ -1274,7 +1423,7 @@ public partial class MainWindow : Window
         _modInstalled = false;
         _firmwareFlavor = Sc3FirmwareFlavor.Unknown;
         _firmwareStatus = null;
-        FirmwareSetupButton.Visibility = Visibility.Collapsed;
+        SetRgbSetupRequired(false);
         UpdateConnectionVisual(_isConnected, status);
         ShowInlineStatus(status);
     }
@@ -1300,12 +1449,11 @@ public partial class MainWindow : Window
     private void UpdateLightingVisual()
     {
         bool on = _settings.IsLightingEnabled;
-        Brush brush = (Brush)FindResource(on ? "ConnectedBrush" : "MutedBrush");
-        LightingIconPath.Stroke = brush;
-        LightingTitleText.Text = "Lighting";
-        LightingDetailText.Text = on ? "RGB lighting is on." : "RGB lighting is disabled.";
-        LightingDetailText.Foreground = brush;
-        RefreshMainNavigationVisuals();
+        LightingSwitch.IsChecked = on;
+        LightingOffBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        LightingStatusText.Text = on
+            ? "Changes show on your SC3 instantly. Save a preset to keep a look."
+            : "Lighting is off. Edits are kept and will show when you turn it on.";
         UpdateMixerPreview();
     }
 
@@ -1355,27 +1503,91 @@ public partial class MainWindow : Window
                 (!string.Equals(preset.Hex, CurrentHex, StringComparison.OrdinalIgnoreCase) || preset.Brightness != CurrentBrightness);
         }
 
-        AddPresetButton.BorderBrush = _isAddingPreset ? new SolidColorBrush(_selectedColor) : new SolidColorBrush(Color.FromRgb(80, 80, 80));
-        AddPresetButton.BorderThickness = _isAddingPreset ? new Thickness(2) : new Thickness(1);
-        PresetHintText.Text = _isAddingPreset ? "New preset ready · choose Apply to save" :
-            selected?.IsDirty == true ? "Unsaved changes · choose Apply to save" : "Changes save with Apply";
+        bool dirty = selected?.IsDirty == true;
+        ApplyButton.Visibility = dirty ? Visibility.Visible : Visibility.Collapsed;
+        PresetEditorPanel.Visibility = selected is null ? Visibility.Collapsed : Visibility.Visible;
+        if (selected is not null && !PresetNameBox.IsKeyboardFocusWithin && PresetNameBox.Text != selected.Name)
+        {
+            _syncingPresetName = true;
+            PresetNameBox.Text = selected.Name;
+            _syncingPresetName = false;
+        }
+        PresetHintText.Text = selected is null
+            ? "No preset selected. Pick one, or use Save as new to keep this color."
+            : dirty ? $"You changed \"{selected.DisplayName}\". Save changes to keep them, or Save as new for a copy."
+            : $"Using \"{selected.DisplayName}\".";
     }
 
     private void EnsureEditablePresets()
     {
         _settings.Presets ??= [];
-        if (_settings.PresetsInitialized) return;
+        if (!_settings.PresetsInitialized)
+        {
+            _settings.Presets = StarterPresets.Select((s, i) => CreateStarter(s.Name, s.Hex, 100, i)).ToList();
+            _settings.PresetsInitialized = true;
+            _settings.StarterPresetsVersion = StarterPresetsVersion;
+            return;
+        }
 
-        _settings.Presets =
-        [
-            CreateStarter("White", "#FFFFFF", 100, 0),
-            CreateStarter("Red", "#FF0000", 100, 1),
-            CreateStarter("Green", "#00FF00", 100, 2),
-            CreateStarter("Blue", "#0000FF", 100, 3),
-            CreateStarter("Orange", "#FF7800", 100, 4),
-            CreateStarter("Purple", "#9D00FF", 100, 5)
-        ];
-        _settings.PresetsInitialized = true;
+        // Existing users: append starters added in later versions once, skipping
+        // colors they already have and never re-adding ones they deleted before.
+        if (_settings.StarterPresetsVersion >= StarterPresetsVersion) return;
+        int order = _settings.Presets.Count == 0 ? 0 : _settings.Presets.Max(p => p.Order) + 1;
+        foreach ((string name, string hex, int version) in StarterPresets)
+        {
+            if (version <= _settings.StarterPresetsVersion || version == 1) continue;
+            if (_settings.Presets.Any(p => string.Equals(p.Hex, hex, StringComparison.OrdinalIgnoreCase))) continue;
+            _settings.Presets.Add(CreateStarter(name, hex, 100, order++));
+        }
+        _settings.StarterPresetsVersion = StarterPresetsVersion;
+    }
+
+    private const int StarterPresetsVersion = 2;
+
+    private static readonly (string Name, string Hex, int Version)[] StarterPresets =
+    [
+        ("White", "#FFFFFF", 1),
+        ("Red", "#FF0000", 1),
+        ("Green", "#00FF00", 1),
+        ("Blue", "#0000FF", 1),
+        ("Orange", "#FF7800", 1),
+        ("Purple", "#9D00FF", 1),
+        ("Warm White", "#FFB46B", 2),
+        ("Yellow", "#FFD000", 2),
+        ("Lime", "#A6FF00", 2),
+        ("Teal", "#00C2A8", 2),
+        ("Cyan", "#00FFFF", 2),
+        ("Ice Blue", "#6EC8FF", 2),
+        ("Magenta", "#FF00FF", 2),
+        ("Pink", "#FF2D95", 2)
+    ];
+
+    private void RandomColorButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Vivid, fully bright colors read best on the mixer LEDs; keep the new
+        // hue at least 40° from the current one so each click visibly changes.
+        double currentHue = HueOf(_selectedColor);
+        double hue;
+        do hue = Random.Shared.NextDouble() * 360;
+        while (Math.Abs(((hue - currentHue + 540) % 360) - 180) < 40);
+        Color color = UI.Controls.HsvColorPicker.ColorFromHsv(hue, 0.75 + Random.Shared.NextDouble() * 0.25, 1);
+
+        _selectedPresetId = null;
+        _settings.SelectedPresetId = null;
+        SetSelectedColor(color, true);
+        RefreshPresetVisualState();
+        PresetHintText.Text = $"Random color {CurrentHex}. Use Save as new to keep it.";
+        ShowInlineStatus($"Random color {CurrentHex}.");
+        QueueSettingsSave();
+    }
+
+    private static double HueOf(Color color)
+    {
+        double r = color.R / 255.0, g = color.G / 255.0, b = color.B / 255.0;
+        double max = Math.Max(r, Math.Max(g, b)), delta = max - Math.Min(r, Math.Min(g, b));
+        if (delta == 0) return 0;
+        double hue = max == r ? (g - b) / delta % 6 : max == g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+        return (hue * 60 + 360) % 360;
     }
 
     private static ColorPreset CreateStarter(string name, string hex, int brightness, int order) => new()
@@ -1424,7 +1636,7 @@ public partial class MainWindow : Window
         try
         {
             await Task.Delay(850, token);
-            ApplyButtonText.Text = "Apply";
+            ApplyButtonText.Text = "Save changes";
         }
         catch (OperationCanceledException) { }
     }
@@ -1442,7 +1654,13 @@ public partial class MainWindow : Window
 
     private void UpdateDynamicAccent(Color color)
     {
-        Application.Current.Resources["AccentBrush"] = new SolidColorBrush(color);
+        // In Windows High Contrast the accent stays on system colors.
+        if (UI.Themes.ThemeManager.AllowDynamicAccent)
+        {
+            Application.Current.Resources["AccentBrush"] = new SolidColorBrush(color);
+            Application.Current.Resources["AccentForegroundBrush"] = new SolidColorBrush(ColorText.ForegroundOn(color));
+            Application.Current.Resources["AccentTextBrush"] = new SolidColorBrush(ColorText.VisibleOnDark(color));
+        }
         PreviewGlow.Color = color;
         RefreshEffectVisualState();
         UpdateMixerPreview();
@@ -1452,10 +1670,9 @@ public partial class MainWindow : Window
     {
         if (StaticEffectButton is null) return;
 
-        Color borderColor = _selectedColor;
-        SolidColorBrush selectedBrush = new(borderColor);
-        SolidColorBrush idleBrush = new(Color.FromRgb(52, 52, 52));
-        foreach ((Button button, LightingEffect effect) in new[]
+        // Selection visuals come from the SegmentedRadio style; just sync IsChecked.
+        _syncingEffect = true;
+        foreach ((RadioButton button, LightingEffect effect) in new[]
         {
             (StaticEffectButton, LightingEffect.Static),
             (BreathingEffectButton, LightingEffect.Breathing),
@@ -1464,13 +1681,9 @@ public partial class MainWindow : Window
             (ColorCycleEffectButton, LightingEffect.ColorCycle)
         })
         {
-            bool selected = effect == _selectedEffect;
-            button.BorderBrush = selected ? selectedBrush : idleBrush;
-            button.BorderThickness = selected ? new Thickness(1.5) : new Thickness(1);
-            button.Effect = selected
-                ? new DropShadowEffect { Color = borderColor, BlurRadius = 9, ShadowDepth = 0, Opacity = 0.28 }
-                : null;
+            button.IsChecked = effect == _selectedEffect;
         }
+        _syncingEffect = false;
 
         RefreshEffectSpeedVisualState();
     }
@@ -1573,11 +1786,11 @@ public partial class MainWindow : Window
 
     private static string FirmwareVersionLabel(Sc3FirmwareFlavor flavor) => flavor switch
     {
-        Sc3FirmwareFlavor.Stock => "FW: Stock V22",
-        Sc3FirmwareFlavor.Mod14 => "FW: RGB+ Mod 1.4",
-        Sc3FirmwareFlavor.DiagnosticMod14 => "FW: Diagnostic Mod 1.4",
-        Sc3FirmwareFlavor.Mod15 => "FW: RGB+ Mod 1.5",
-        _ => "FW: Unknown"
+        Sc3FirmwareFlavor.Stock => "Firmware: FIFINE original (V22)",
+        Sc3FirmwareFlavor.Mod14 => "Firmware: RGB+ 1.4",
+        Sc3FirmwareFlavor.DiagnosticMod14 => "Firmware: RGB+ 1.4 (diagnostic)",
+        Sc3FirmwareFlavor.Mod15 => "Firmware: RGB+ 1.5",
+        _ => "Firmware: unknown"
     };
 
     private static string FirmwareReadyMessage(Sc3FirmwareFlavor flavor) => flavor switch
@@ -1587,5 +1800,15 @@ public partial class MainWindow : Window
         _ => "RGB+ Mod 1.4 ready."
     };
 
-    private void ShowInlineStatus(string message) => TransferStatusText.Text = message;
+    private void ShowInlineStatus(string message)
+    {
+        TransferStatusText.Text = message;
+        TransferStatusText.ToolTip = string.IsNullOrEmpty(message) ? null : message;
+        Announce(TransferStatusText);
+    }
+
+    // Tell screen readers that a LiveSetting region changed so it is read aloud.
+    private static void Announce(FrameworkElement element) =>
+        (UIElementAutomationPeer.FromElement(element) ?? UIElementAutomationPeer.CreatePeerForElement(element))
+            ?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
 }

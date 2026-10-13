@@ -17,8 +17,13 @@ public sealed class FirmwareService
         HidIdentity? identity = HidDiscovery.FindValidatedNormal();
         if (identity is null)
         {
-            bool anySc3 = HidDiscovery.Enumerate().Any(x => x.Vid == ReleasePolicy.NormalVid && x.Pid == ReleasePolicy.NormalPid);
-            return new(false, false, false, anySc3 ? "Unsupported or unvalidated SC3 revision." : "No FIFINE SC3 detected.");
+            HidIdentity[] sc3 = HidDiscovery.Enumerate().Where(x => x.Vid == ReleasePolicy.NormalVid && x.Pid == ReleasePolicy.NormalPid).ToArray();
+            if (sc3.Length == 0) return new(false, false, false, "No FIFINE SC3 detected.");
+            if (sc3.Count(HidDiscovery.IsValidatedNormal) > 1)
+                return new(false, false, false, "More than one SC3 detected. Connect only one SC3.");
+            string reason = sc3.Select(HidDiscovery.DescribeNormalMismatch)
+                .FirstOrDefault(x => x is not null && x != "not interface MI_04") ?? "SC3 control interface not found";
+            return new(false, false, false, $"Unsupported or unvalidated SC3 revision ({reason}).");
         }
         try
         {
@@ -35,7 +40,7 @@ public sealed class FirmwareService
                 InstalledFirmwareFlavor.Mod14 => "SC3 RGB+ Mod 1.4 ready; Mod 1.5 update available.",
                 _ => "Validated SC3 detected; RGB+ firmware setup required."
             };
-            return new(true, true, mod, message, identity.Path, ReleasePolicy.ValidatedHidInstance);
+            return new(true, true, mod, message, identity.Path);
         }
         catch (Exception ex) { return new(true, false, false, "SC3 detected; firmware validation failed: " + ex.Message, identity.Path); }
     }

@@ -1,50 +1,26 @@
 <Window x:Class="SC3RGBController.UI.FirmwareSetupWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SC3 Firmware Update" Width="470" Height="250" ResizeMode="NoResize"
-        WindowStartupLocation="CenterOwner" Background="#090909" Foreground="White">
-    <Window.Resources>
-        <Style x:Key="FirmwareCloseButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#1A1A1A"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#FF7800"/>
-            <Setter Property="BorderThickness" Value="1.5"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#2A1A0D"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#555555"/>
-                                <Setter Property="Foreground" Value="#888888"/>
-                                <Setter Property="Cursor" Value="Arrow"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-    <Border BorderBrush="#343434" BorderThickness="1" CornerRadius="14" Padding="28" Background="#0D0D0D">
-        <Grid>
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="18"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <TextBlock x:Name="HeadingText" Text="Setting up your SC3" FontSize="22" FontWeight="SemiBold"/>
-            <TextBlock x:Name="StageText" Grid.Row="2" Text="Preparing" FontSize="15"/>
-            <ProgressBar x:Name="Progress" Grid.Row="4" Height="10" Minimum="0" Maximum="100" Value="0" Foreground="#FF7800" Background="#292929"/>
-            <TextBlock x:Name="DetailText" Grid.Row="5" Text="Do not disconnect the mixer." Foreground="#A8A8A8" FontSize="12" Margin="0,14,0,0" TextWrapping="Wrap"/>
-            <Button x:Name="CloseButton" Grid.Row="6" Content="Close" Width="100" Height="34" HorizontalAlignment="Right"
-                    IsEnabled="False" Style="{StaticResource FirmwareCloseButtonStyle}" Click="CloseButton_Click"/>
-        </Grid>
-    </Border>
+        Title="SC3 Firmware Update" Width="480" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <StackPanel Margin="28,24,28,24">
+        <TextBlock x:Name="HeadingText" Text="Setting up your SC3" Style="{StaticResource PageTitleText}" FontSize="20" TextWrapping="Wrap"/>
+
+        <TextBlock x:Name="StageText" Text="Preparing" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,16,0,0"
+                   AutomationProperties.LiveSetting="Polite"/>
+
+        <ProgressBar x:Name="Progress" Height="8" Minimum="0" Maximum="100" Value="0" Margin="0,12,0,0"
+                     Background="{StaticResource PressedBrush}" Foreground="{DynamicResource AccentTextBrush}"
+                     BorderBrush="{StaticResource ControlStrokeBrush}" BorderThickness="1"
+                     AutomationProperties.Name="Firmware progress"/>
+
+        <TextBlock x:Name="DetailText" Text="Do not disconnect the mixer." Style="{StaticResource CaptionText}" FontSize="13"
+                   Margin="0,14,0,0" AutomationProperties.LiveSetting="Polite"/>
+
+        <!-- Enabled only when the operation has finished (the window cannot be closed while flashing). -->
+        <Button x:Name="CloseButton" Content="Close" MinWidth="100" HorizontalAlignment="Right" Margin="0,24,0,0"
+                IsEnabled="False" Style="{StaticResource PremiumButton}" Click="CloseButton_Click"/>
+    </StackPanel>
 </Window>

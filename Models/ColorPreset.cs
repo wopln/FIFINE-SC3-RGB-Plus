@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
-using System.Windows;
 
 namespace SC3RGBController.Models;
 
@@ -18,19 +17,19 @@ public sealed class ColorPreset : INotifyPropertyChanged
     public string Name
     {
         get => _name;
-        set { _name = value ?? string.Empty; OnPropertyChanged(); OnPropertyChanged(nameof(DisplayName)); }
+        set { _name = value ?? string.Empty; OnPropertyChanged(); OnDescriptionChanged(); }
     }
 
     public string Hex
     {
         get => _hex;
-        set { _hex = value; OnPropertyChanged(); OnPropertyChanged(nameof(DisplayName)); OnPropertyChanged(nameof(BorderHex)); }
+        set { _hex = value; OnPropertyChanged(); OnDescriptionChanged(); }
     }
 
     public int Brightness
     {
         get => _brightness;
-        set { _brightness = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+        set { _brightness = Math.Clamp(value, 0, 100); OnPropertyChanged(); OnDescriptionChanged(); }
     }
 
     public int Order { get; set; }
@@ -44,8 +43,6 @@ public sealed class ColorPreset : INotifyPropertyChanged
             if (_isSelected == value) return;
             _isSelected = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(BorderHex));
-            OnPropertyChanged(nameof(CardBorderThickness));
         }
     }
 
@@ -58,7 +55,7 @@ public sealed class ColorPreset : INotifyPropertyChanged
             if (_isDirty == value) return;
             _isDirty = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(DirtyVisibility));
+            OnDescriptionChanged();
         }
     }
 
@@ -66,15 +63,28 @@ public sealed class ColorPreset : INotifyPropertyChanged
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Hex : Name;
 
     [JsonIgnore]
-    public string BorderHex => IsSelected ? Hex : "#343434";
+    public string Subtitle => IsDirty ? "Unsaved changes" : Brightness == 100 ? Hex : $"{Hex} · {Brightness}%";
+
+    // Spoken by screen readers for the tile; state ("selected") comes from the radio button itself.
+    [JsonIgnore]
+    public string AccessibleName =>
+        $"{DisplayName}, {Hex}, {Brightness}% brightness" + (IsDirty ? ", unsaved changes" : string.Empty);
 
     [JsonIgnore]
-    public Thickness CardBorderThickness => IsSelected ? new Thickness(2) : new Thickness(1);
+    public string DeleteName => $"Delete preset {DisplayName}";
 
-    [JsonIgnore]
-    public Visibility DirtyVisibility => IsDirty ? Visibility.Visible : Visibility.Collapsed;
+    // List items are announced by ToString when no name is set.
+    public override string ToString() => AccessibleName;
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnDescriptionChanged()
+    {
+        OnPropertyChanged(nameof(DisplayName));
+        OnPropertyChanged(nameof(Subtitle));
+        OnPropertyChanged(nameof(AccessibleName));
+        OnPropertyChanged(nameof(DeleteName));
+    }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

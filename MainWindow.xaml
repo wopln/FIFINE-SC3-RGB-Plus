@@ -3,75 +3,64 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:SC3RGBController.UI.Controls"
         xmlns:ui="clr-namespace:SC3RGBController.UI"
-        Title="FIFINE SC3 RGB+" Icon="Assets/fifine_sc3_rgb_plus.ico" Width="1350" Height="780" MinWidth="1100" MinHeight="680"
-        WindowStartupLocation="CenterScreen" WindowStyle="None" AllowsTransparency="True"
-        ResizeMode="CanResize" Background="Transparent" UseLayoutRounding="True" SnapsToDevicePixels="True"
-        Loaded="Window_Loaded" Closing="Window_Closing" StateChanged="Window_StateChanged">
-    <Border x:Name="WindowFrame" CornerRadius="20" BorderThickness="1.4" ClipToBounds="True">
-        <Border.BorderBrush>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#FF5A18" Offset="0" />
-                <GradientStop Color="#60E877" Offset="0.28" />
-                <GradientStop Color="#387BFF" Offset="0.55" />
-                <GradientStop Color="#D235FF" Offset="0.76" />
-                <GradientStop Color="#FFE15C" Offset="1" />
-            </LinearGradientBrush>
-        </Border.BorderBrush>
-        <Border Background="#000000" CornerRadius="19">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="66" />
-                    <RowDefinition Height="1" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="76" />
-                </Grid.RowDefinitions>
+        Title="FIFINE SC3 RGB+" Icon="Assets/fifine_sc3_rgb_plus.ico" Width="1240" Height="820" MinWidth="900" MinHeight="580"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResize" Background="{StaticResource WindowBrush}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display"
+        Loaded="Window_Loaded" Closing="Window_Closing" StateChanged="Window_StateChanged" PreviewKeyDown="Window_PreviewKeyDown">
+    <!-- System-drawn frame: edge resizing, Aero Snap, Win+Arrow and Windows 11 rounded corners all work. -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="44" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
 
-                <!-- Custom title bar -->
-                <Grid Grid.Row="0" Background="#000000" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="28,0,0,0">
-                        <Grid Width="25" Height="25" Margin="0,0,12,0">
-                            <Image Source="Assets/fifine_sc3_rgb_plus.png" Stretch="Uniform" />
-                        </Grid>
-                        <TextBlock Text="FIFINE SC3 RGB+" FontSize="16" FontWeight="Medium" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <TextBlock Grid.Column="1" Text="FIFINE SC3 RGB+" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Style="{StaticResource TitleBarButton}" Content="—" Click="MinimizeButton_Click" />
-                        <Button x:Name="MaximizeButton" Style="{StaticResource TitleBarButton}" Content="□" Click="MaximizeButton_Click" />
-                        <Button Style="{StaticResource TitleBarButton}" Content="×" FontSize="23" Click="CloseButton_Click" />
-                    </StackPanel>
-                </Grid>
-                <Border Grid.Row="1" Background="#202020" />
+    <Border x:Name="WindowFrame" Background="{StaticResource WindowBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="44" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-                <!-- Main workspace -->
-                <Grid Grid.Row="2" Margin="26,22,26,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="238" />
-                        <ColumnDefinition Width="24" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
+            <!-- Title bar -->
+            <Grid Grid.Row="0">
+                <Border Height="2" VerticalAlignment="Top" IsHitTestVisible="False">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#FF5A18" Offset="0" /><GradientStop Color="#60E877" Offset="0.28" />
+                            <GradientStop Color="#387BFF" Offset="0.55" /><GradientStop Color="#D235FF" Offset="0.76" />
+                            <GradientStop Color="#FFE15C" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <Image Source="Assets/fifine_sc3_rgb_plus.png" Width="20" Height="20" Margin="0,0,10,0" AutomationProperties.Name="App icon" />
+                    <TextBlock Text="FIFINE SC3 RGB+" FontSize="13" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+                    <Button Style="{StaticResource TitleBarButton}" Content="&#xE921;" Click="MinimizeButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"
+                            AutomationProperties.Name="Minimize" ToolTip="Minimize" />
+                    <Button x:Name="MaximizeButton" Style="{StaticResource TitleBarButton}" Content="&#xE922;" Click="MaximizeButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"
+                            AutomationProperties.Name="Maximize" ToolTip="Maximize" />
+                    <Button Style="{StaticResource TitleBarCloseButton}" Content="&#xE8BB;" Click="CloseButton_Click" WindowChrome.IsHitTestVisibleInChrome="True"
+                            AutomationProperties.Name="Close" ToolTip="Close" />
+                </StackPanel>
+            </Grid>
 
-                    <!-- Device sidebar -->
-                    <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="20,20,20,18">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                <RowDefinition Height="20" /><RowDefinition Height="1" /><RowDefinition Height="18" />
-                                <RowDefinition Height="Auto" /><RowDefinition Height="18" /><RowDefinition Height="1" />
-                                <RowDefinition Height="18" /><RowDefinition Height="Auto" /><RowDefinition Height="18" />
-                                <RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
+            <!-- Workspace -->
+            <Grid Grid.Row="1" Margin="16,4,16,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="232" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-                            <!-- Real SC3 base with separate dynamic RGB and glow mask layers. -->
-                            <Viewbox Grid.Row="0" Height="150" Stretch="Uniform" Margin="0,0,0,8">
-                                <Grid Width="1209" Height="875" ClipToBounds="False">
-                                    <Image Source="Assets/sc3_mixer_base.png" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" />
+                <!-- Sidebar: device + navigation -->
+                <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="16">
+                    <DockPanel LastChildFill="False">
+                        <StackPanel DockPanel.Dock="Top" AutomationProperties.Name="Device">
+                            <!-- Live preview: base hardware photo with lighting and glow masks tinted by the current color. -->
+                            <Viewbox Height="116" Stretch="Uniform" Margin="0,4,0,10" AutomationProperties.Name="Mixer lighting preview">
+                                <Grid Width="1209" Height="875">
+                                    <Image Source="Assets/sc3_mixer_base.png" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="SC3 mixer preview, lit in the current color" />
                                     <Rectangle x:Name="MixerGlowOverlay" IsHitTestVisible="False">
                                         <Rectangle.Fill><SolidColorBrush x:Name="MixerGlowBrush" Color="#FF7800" /></Rectangle.Fill>
                                         <Rectangle.OpacityMask><ImageBrush ImageSource="Assets/sc3_rgb_glow_mask.png" Stretch="Fill" /></Rectangle.OpacityMask>
@@ -82,311 +71,275 @@
                                     </Rectangle>
                                 </Grid>
                             </Viewbox>
-                            <TextBlock Grid.Row="1" Text="FIFINE SC3" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,4,0,0" />
-                            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,0">
-                                <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="{StaticResource DisconnectedBrush}" Margin="0,0,8,0" />
-                                <TextBlock x:Name="SidebarConnectionText" Text="Checking…" Foreground="{StaticResource SecondaryTextBrush}" FontSize="16" />
-                            </StackPanel>
-                            <Border Grid.Row="4" Background="#242424" />
-
-                            <Grid Grid.Row="6">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Grid Width="26" Height="26" VerticalAlignment="Top">
-                                    <Ellipse x:Name="DeviceHealthIcon" Stroke="{StaticResource DisconnectedBrush}" StrokeThickness="2" />
-                                    <TextBlock Text="✓" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Grid>
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock x:Name="DeviceHealthTitle" Text="Device Status" FontSize="14" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="DeviceHealthDetail" Text="Checking the device." Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="FIFINE SC3" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                            <Border HorizontalAlignment="Center" Margin="0,8,0,0" Padding="10,4" CornerRadius="12" Background="{StaticResource PanelAltBrush}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{StaticResource MutedBrush}" Margin="0,0,7,0" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SidebarConnectionText" Text="Checking…" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource SecondaryTextBrush}"
+                                               AutomationProperties.LiveSetting="Polite" />
                                 </StackPanel>
-                            </Grid>
-                            <Border Grid.Row="8" Background="#242424" />
+                            </Border>
+                            <TextBlock x:Name="DeviceHealthDetail" Text="Looking for your SC3." Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,8,0,0" />
+                            <Border Height="1" Background="{StaticResource BorderBrush}" Margin="-16,16,-16,12" />
+                        </StackPanel>
 
+                        <StackPanel DockPanel.Dock="Top" KeyboardNavigation.DirectionalNavigation="Cycle" AutomationProperties.Name="Main navigation">
+                            <RadioButton x:Name="LightingNavItem" AutomationProperties.Name="Lighting" GroupName="MainNav" Style="{StaticResource NavItem}" IsChecked="True" Checked="LightingNavItem_Checked"
+                                         ToolTip="Lighting (Ctrl+1)">
+                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE781;" Style="{StaticResource IconText}" Margin="0,0,12,0" /><TextBlock Text="Lighting" FontSize="14.5" /></StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="SettingsNavItem" AutomationProperties.Name="Settings" GroupName="MainNav" Style="{StaticResource NavItem}" Margin="0,4,0,0" Checked="SettingsNavItem_Checked"
+                                         ToolTip="Settings (Ctrl+,)">
+                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" Style="{StaticResource IconText}" Margin="0,0,12,0" /><TextBlock Text="Settings" FontSize="14.5" /></StackPanel>
+                            </RadioButton>
+                        </StackPanel>
 
-                            <Button x:Name="LightingButton" Grid.Row="10" Style="{StaticResource SidebarActionButton}"
-                                    Background="Transparent" BorderThickness="1" Click="LightingButton_Click">
-                                <Grid Height="48">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Border Width="34" Height="48">
-                                        <Viewbox Width="22" Height="22" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <Canvas Width="24" Height="24">
-                                                <Path x:Name="LightingIconPath" Stroke="{StaticResource SecondaryTextBrush}" StrokeThickness="2.2"
-                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                                      Data="M 12,3 L 12,11 M 7.05,5.63 C 4.58,7.22 3,10.01 3,13.2 C 3,18.06 7.03,22 12,22 C 16.97,22 21,18.06 21,13.2 C 21,10.01 19.42,7.22 16.95,5.63" />
-                                            </Canvas>
-                                        </Viewbox>
-                                    </Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock x:Name="LightingTitleText" Text="Lighting" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Left" />
-                                        <TextBlock x:Name="LightingDetailText" Text="RGB lighting is on." Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Grid>
-                            </Button>
+                        <StackPanel DockPanel.Dock="Bottom">
+                            <TextBlock x:Name="FirmwareVersionText" Text="Firmware: checking" Style="{StaticResource CaptionText}" />
+                            <TextBlock x:Name="AppVersionText" Text="App: checking" Style="{StaticResource CaptionText}" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
 
-                            <Button x:Name="SettingsButton" Grid.Row="12" Style="{StaticResource SidebarActionButton}"
-                                    Height="66" MinHeight="66" Padding="7,5" Background="Transparent" BorderThickness="1" Click="SettingsButton_Click">
-                                <Grid MinHeight="54">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Border Width="34" MinHeight="54"><TextBlock Text="⚙" FontSize="20" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock Text="Settings" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Left" />
-                                        <TextBlock Text="App and troubleshooting options." Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Grid>
-                            </Button>
-
-                            <Grid Grid.Row="14" Margin="0,0,0,2">
+                <!-- Pages -->
+                <Grid Grid.Column="2">
+                    <ScrollViewer x:Name="RgbControlView" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False" Padding="0,0,6,0">
+                        <StackPanel>
+                            <!-- Page header -->
+                            <Grid Margin="4,6,0,14">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Start with Windows" FontSize="11.5" FontWeight="SemiBold" />
-                                    <TextBlock Text="Restore RGB state on boot" Foreground="{StaticResource MutedBrush}" FontSize="10" Margin="0,3,0,0" />
+                                    <TextBlock Text="Lighting" Style="{StaticResource PageTitleText}" />
+                                    <TextBlock x:Name="LightingStatusText" Text="Changes show on your SC3 instantly." Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
                                 </StackPanel>
-                                <CheckBox x:Name="StartWithWindowsToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Width="48" Height="25"
-                                          Checked="StartWithWindowsToggle_Changed" Unchecked="StartWithWindowsToggle_Changed" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="StopButton" AutomationProperties.Name="Use FIFINE default lighting" Style="{StaticResource SubtleButton}" Click="StopButton_Click" Margin="0,0,12,0" IsEnabled="False"
+                                            ToolTip="Hand lighting back to the mixer's built-in FIFINE effect until you change a color again.">
+                                        <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE777;" Style="{StaticResource IconText}" FontSize="14" Margin="0,0,8,0" /><TextBlock Text="Use FIFINE default" FontSize="13.5" /></StackPanel>
+                                    </Button>
+                                    <CheckBox x:Name="LightingSwitch" Style="{StaticResource ToggleSwitch}" Checked="LightingSwitch_Changed" Unchecked="LightingSwitch_Changed" ToolTip="Turn RGB lighting on or off (Ctrl+L)">
+                                        <TextBlock Text="RGB lighting" FontSize="14" FontWeight="SemiBold" />
+                                    </CheckBox>
+                                </StackPanel>
                             </Grid>
 
-                            <Grid Grid.Row="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock x:Name="FirmwareVersionText" Text="FW: Checking" Foreground="{StaticResource MutedBrush}" FontSize="10.5" />
-                                <Border Grid.Column="1" Background="#333333" Margin="8,0" />
-                                <TextBlock x:Name="AppVersionText" Grid.Column="2" Text="App: Checking" Foreground="{StaticResource MutedBrush}" FontSize="10.5" HorizontalAlignment="Right" />
-                            </Grid>
-                        </Grid>
-                    </Border>
-
-                    <!-- Main controls -->
-                    <Grid x:Name="ContentHost" Grid.Column="2">
-                        <Grid x:Name="RgbControlView">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*" /><RowDefinition Height="16" /><RowDefinition Height="Auto" />
-                            <RowDefinition Height="16" /><RowDefinition Height="82" />
-                        </Grid.RowDefinitions>
-
-                        <Border Grid.Row="0" Style="{StaticResource CardStyle}" Padding="16">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="42*" MinWidth="280" />
-                                    <ColumnDefinition Width="1" />
-                                    <ColumnDefinition Width="24" />
-                                    <ColumnDefinition Width="58*" MinWidth="350" />
-                                </Grid.ColumnDefinitions>
-                                 <controls:HsvColorPicker x:Name="ColorPicker" Grid.Column="0" Margin="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                                          FocusVisualStyle="{x:Null}"
-                                                          SelectedColorChanged="ColorPicker_SelectedColorChanged" />
-                                <Border Grid.Column="1" Background="#333333" Margin="0,8" />
-
-                                <Grid Grid.Column="3" Margin="4,4,4,2">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" />
-                                        <RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="2" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <Grid Grid.Row="0">
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="116" /></Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="HEX" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,5" />
-                                            <Grid Height="42">
-                                                <TextBox x:Name="HexBox" Foreground="Transparent" Text="#FF7800" TextChanged="HexBox_TextChanged"
-                                                         LostKeyboardFocus="HexBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" MaxLength="7" />
-                                                <TextBlock Text="{Binding Text, ElementName=HexBox}" Foreground="{StaticResource TextBrush}" FontSize="15"
-                                                           Margin="14,0" VerticalAlignment="Center" IsHitTestVisible="False" />
-                                            </Grid>
-                                        </StackPanel>
-                                        <Border x:Name="ColorPreview" Grid.Column="2" Margin="0,22,0,0" Height="52" VerticalAlignment="Top" CornerRadius="9" Background="#FF7800"
-                                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2">
-                                            <Border.Effect><DropShadowEffect x:Name="PreviewGlow" Color="#FF7800" BlurRadius="13" ShadowDepth="0" Opacity="0.42" /></Border.Effect>
-                                        </Border>
-                                    </Grid>
-
-                                    <UniformGrid Grid.Row="2" Rows="1" Columns="3">
-                                        <StackPanel Margin="0,0,12,0">
-                                            <TextBlock Text="R" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,5" />
-                                            <Grid Height="38"><TextBox x:Name="RedBox" Foreground="Transparent" TextChanged="RgbBox_TextChanged" LostKeyboardFocus="RgbBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" MaxLength="3" /><TextBlock Text="{Binding Text, ElementName=RedBox}" Foreground="{StaticResource TextBrush}" FontSize="15" Margin="14,0" VerticalAlignment="Center" IsHitTestVisible="False" /></Grid>
-                                        </StackPanel>
-                                        <StackPanel Margin="0,0,12,0">
-                                            <TextBlock Text="G" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,5" />
-                                            <Grid Height="38"><TextBox x:Name="GreenBox" Foreground="Transparent" TextChanged="RgbBox_TextChanged" LostKeyboardFocus="RgbBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" MaxLength="3" /><TextBlock Text="{Binding Text, ElementName=GreenBox}" Foreground="{StaticResource TextBrush}" FontSize="15" Margin="14,0" VerticalAlignment="Center" IsHitTestVisible="False" /></Grid>
-                                        </StackPanel>
-                                        <StackPanel>
-                                            <TextBlock Text="B" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,5" />
-                                            <Grid Height="38"><TextBox x:Name="BlueBox" Foreground="Transparent" TextChanged="RgbBox_TextChanged" LostKeyboardFocus="RgbBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" MaxLength="3" /><TextBlock Text="{Binding Text, ElementName=BlueBox}" Foreground="{StaticResource TextBrush}" FontSize="15" Margin="14,0" VerticalAlignment="Center" IsHitTestVisible="False" /></Grid>
-                                        </StackPanel>
-                                    </UniformGrid>
-
-                                    <Grid Grid.Row="4">
-                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="5" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                        <Grid><TextBlock Text="Brightness" FontSize="15" FontWeight="SemiBold" /><TextBlock x:Name="BrightnessText" Text="100%" Foreground="{DynamicResource AccentBrush}" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Right" /></Grid>
-                                        <Grid Grid.Row="2">
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /><ColumnDefinition Width="28" /></Grid.ColumnDefinitions>
-                                            <TextBlock Text="☼" Foreground="{StaticResource SecondaryTextBrush}" FontSize="17" VerticalAlignment="Center" />
-                                            <Slider x:Name="BrightnessSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="100" TickFrequency="1"
-                                                    Style="{StaticResource BrightnessSlider}" ValueChanged="BrightnessSlider_ValueChanged" Margin="2,0" />
-                                            <TextBlock Grid.Column="2" Text="☀" Foreground="{StaticResource SecondaryTextBrush}" FontSize="18" HorizontalAlignment="Right" VerticalAlignment="Center" />
-                                        </Grid>
-                                    </Grid>
-
-                                    <Grid Grid.Row="6" Margin="0,2,0,0">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="6" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="0" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <TextBlock Text="Effects" FontSize="15" FontWeight="SemiBold" />
-                                        <UniformGrid Grid.Row="2" Rows="1" Columns="5">
-                                            <Button x:Name="StaticEffectButton" Content="Static" Tag="Static" Style="{StaticResource EffectButton}" Click="EffectButton_Click" Margin="0,0,5,0" />
-                                            <Button x:Name="BreathingEffectButton" Content="Breathing" Tag="Breathing" Style="{StaticResource EffectButton}" Click="EffectButton_Click" Margin="0,0,5,0" />
-                                            <Button x:Name="RainbowEffectButton" Content="Rainbow" Tag="Rainbow" Style="{StaticResource EffectButton}" Click="EffectButton_Click" Margin="0,0,5,0" />
-                                            <Button x:Name="PulseEffectButton" Content="Pulse" Tag="Pulse" Style="{StaticResource EffectButton}" Click="EffectButton_Click" Margin="0,0,5,0" />
-                                            <Button x:Name="ColorCycleEffectButton" Content="Color Cycle" Tag="ColorCycle" Style="{StaticResource EffectButton}" Click="EffectButton_Click" />
-                                        </UniformGrid>
-                                        <Grid x:Name="EffectSpeedPanel" Grid.Row="4" Margin="0,8,0,14" Visibility="Collapsed">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="6" />
-                                                <RowDefinition Height="Auto" />
-                                            </Grid.RowDefinitions>
-                                            <Grid>
-                                                <TextBlock Text="Speed" FontSize="15" FontWeight="SemiBold" />
-                                                <TextBlock x:Name="EffectSpeedText" Text="50%" Foreground="{DynamicResource AccentBrush}" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Grid Grid.Row="2">
-                                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                                <TextBlock Text="Slow" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                                <Slider x:Name="EffectSpeedSlider" Grid.Column="1" Minimum="1" Maximum="100" Value="50" TickFrequency="1"
-                                                        Style="{StaticResource BrightnessSlider}" ValueChanged="EffectSpeedSlider_ValueChanged" />
-                                                <TextBlock Grid.Column="2" Text="Fast" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0" />
-                                            </Grid>
-                                        </Grid>
-                                    </Grid>
+                            <!-- Setup required -->
+                            <Border x:Name="SetupBar" Style="{StaticResource InfoBarStyle}" Background="{StaticResource WarningBarBackgroundBrush}" BorderBrush="{StaticResource WarningBrush}"
+                                    Margin="0,0,0,12" Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="&#xE7BA;" Style="{StaticResource IconText}" Foreground="{StaticResource WarningBrush}" Margin="0,0,12,0" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="RGB control isn't set up on this SC3 yet" FontWeight="SemiBold" />
+                                        <TextBlock Text="A one-time firmware install (about 2 minutes) unlocks colors, effects and Custom A–D buttons. Keep the mixer plugged in directly while it runs." Style="{StaticResource CaptionText}" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                    <Button x:Name="FirmwareSetupButton" Grid.Column="2" Style="{StaticResource PremiumButton}" Background="{StaticResource WarningBrush}" BorderBrush="{StaticResource WarningBrush}"
+                                            Foreground="#000000" Content="Enable RGB control" Margin="16,0,0,0" Click="FirmwareSetupButton_Click" Visibility="Collapsed" />
                                 </Grid>
-                            </Grid>
-                        </Border>
+                            </Border>
 
-                        <Grid Grid.Row="2">
-                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="76" /></Grid.RowDefinitions>
-                            <Grid>
-                                <TextBlock Text="Presets" FontSize="16" FontWeight="SemiBold" Margin="16,0,0,0" />
-                                <TextBlock x:Name="PresetHintText" Text="Changes save with Apply" Foreground="{StaticResource MutedBrush}" FontSize="11.5" HorizontalAlignment="Right" VerticalAlignment="Center" />
-                            </Grid>
-                            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="0,0,3,0">
-                                <ScrollViewer.Resources>
-                                    <Style TargetType="ScrollBar">
-                                        <Setter Property="Height" Value="7" />
-                                        <Setter Property="Margin" Value="0,5,0,0" />
-                                        <Setter Property="Background" Value="Transparent" />
-                                        <Setter Property="Focusable" Value="False" />
-                                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                                        <Setter Property="Template">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType="ScrollBar">
-                                                    <Grid Background="Transparent">
-                                                        <Track x:Name="PART_Track" IsDirectionReversed="False">
-                                                            <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageLeftCommand" Background="Transparent" BorderThickness="0" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
-                                                            <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageRightCommand" Background="Transparent" BorderThickness="0" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
-                                                            <Track.Thumb>
-                                                                <Thumb Height="4" Margin="0,1" Focusable="False">
-                                                                    <Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="#353535" CornerRadius="2" /></ControlTemplate></Thumb.Template>
-                                                                </Thumb>
-                                                            </Track.Thumb>
-                                                        </Track>
-                                                    </Grid>
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Style>
-                                </ScrollViewer.Resources>
-                                <StackPanel Orientation="Horizontal">
-                                    <ItemsControl x:Name="PresetItemsControl">
-                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <!-- Lighting off -->
+                            <Border x:Name="LightingOffBar" Style="{StaticResource InfoBarStyle}" Margin="0,0,0,12" Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="&#xE946;" Style="{StaticResource IconText}" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,12,0" />
+                                    <TextBlock Grid.Column="1" Text="RGB lighting is off. You can still pick colors and edit presets; turn lighting on to show them on your SC3." Style="{StaticResource CaptionText}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="2" Style="{StaticResource PremiumButton}" Content="Turn on" Margin="16,0,0,0" Click="TurnLightingOnButton_Click" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Color -->
+                            <Border Style="{StaticResource CardStyle}" Padding="20">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="28" />
+                                        <ColumnDefinition Width="*" MinWidth="240" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:HsvColorPicker x:Name="ColorPicker" Width="276" Height="276" VerticalAlignment="Top"
+                                                             SelectedColorChanged="ColorPicker_SelectedColorChanged" />
+
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Color" Style="{StaticResource SectionTitleText}" />
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="14" /><ColumnDefinition Width="96" /></Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock x:Name="HexLabel" Text="Hex" Style="{StaticResource LabelText}" Margin="0,0,0,6" />
+                                                <TextBox x:Name="HexBox" Text="#FF7800" MaxLength="7" AutomationProperties.LabeledBy="{Binding ElementName=HexLabel}"
+                                                         AutomationProperties.HelpText="Six-digit color code, for example #FF7800."
+                                                         TextChanged="HexBox_TextChanged" LostKeyboardFocus="HexBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" />
+                                            </StackPanel>
+                                            <Border x:Name="ColorPreview" Grid.Column="2" CornerRadius="10" Background="#FF7800" Height="62" VerticalAlignment="Bottom"
+                                                    BorderBrush="{StaticResource ControlStrokeBrush}" BorderThickness="1" AutomationProperties.Name="Current color preview">
+                                                <Border.Effect><DropShadowEffect x:Name="PreviewGlow" Color="#FF7800" BlurRadius="16" ShadowDepth="0" Opacity="0.45" /></Border.Effect>
+                                            </Border>
+                                        </Grid>
+                                        <UniformGrid Rows="1" Columns="3" Margin="0,14,0,0">
+                                            <StackPanel Margin="0,0,10,0">
+                                                <TextBlock x:Name="RedLabel" Text="Red" Style="{StaticResource LabelText}" Margin="0,0,0,6" />
+                                                <TextBox x:Name="RedBox" MaxLength="3" AutomationProperties.LabeledBy="{Binding ElementName=RedLabel}" AutomationProperties.HelpText="0 to 255"
+                                                         TextChanged="RgbBox_TextChanged" LostKeyboardFocus="RgbBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" />
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,10,0">
+                                                <TextBlock x:Name="GreenLabel" Text="Green" Style="{StaticResource LabelText}" Margin="0,0,0,6" />
+                                                <TextBox x:Name="GreenBox" MaxLength="3" AutomationProperties.LabeledBy="{Binding ElementName=GreenLabel}" AutomationProperties.HelpText="0 to 255"
+                                                         TextChanged="RgbBox_TextChanged" LostKeyboardFocus="RgbBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" />
+                                            </StackPanel>
+                                            <StackPanel>
+                                                <TextBlock x:Name="BlueLabel" Text="Blue" Style="{StaticResource LabelText}" Margin="0,0,0,6" />
+                                                <TextBox x:Name="BlueBox" MaxLength="3" AutomationProperties.LabeledBy="{Binding ElementName=BlueLabel}" AutomationProperties.HelpText="0 to 255"
+                                                         TextChanged="RgbBox_TextChanged" LostKeyboardFocus="RgbBox_LostKeyboardFocus" PreviewKeyDown="InputBox_PreviewKeyDown" />
+                                            </StackPanel>
+                                        </UniformGrid>
+
+                                        <Grid Margin="0,20,0,0">
+                                            <TextBlock x:Name="BrightnessLabel" Text="Brightness" Style="{StaticResource LabelText}" />
+                                            <TextBlock x:Name="BrightnessText" Text="100%" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <Grid Margin="0,4,0,0">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="&#xE706;" Style="{StaticResource IconText}" FontSize="13" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,10,0" />
+                                            <Slider x:Name="BrightnessSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="100" Style="{StaticResource BrightnessSlider}"
+                                                    AutomationProperties.LabeledBy="{Binding ElementName=BrightnessLabel}" ValueChanged="BrightnessSlider_ValueChanged" />
+                                            <TextBlock Grid.Column="2" Text="&#xE706;" Style="{StaticResource IconText}" FontSize="19" Foreground="{StaticResource SecondaryTextBrush}" Margin="10,0,0,0" />
+                                        </Grid>
+                                        <TextBlock Text="Tip: on the color wheel, use arrow keys for shade and Page Up/Page Down for hue." Style="{StaticResource CaptionText}" Foreground="{StaticResource MutedBrush}" Margin="0,16,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Effect -->
+                            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock x:Name="EffectLabel" Text="Effect" Style="{StaticResource SectionTitleText}" />
+                                    <UniformGrid Rows="1" Columns="5" Margin="0,12,0,0" KeyboardNavigation.DirectionalNavigation="Cycle"
+                                                 AutomationProperties.LabeledBy="{Binding ElementName=EffectLabel}">
+                                        <RadioButton x:Name="StaticEffectButton" GroupName="Effect" Content="Static" Tag="Static" Style="{StaticResource SegmentedRadio}" Checked="EffectButton_Click" Margin="0,0,8,0" />
+                                        <RadioButton x:Name="BreathingEffectButton" GroupName="Effect" Content="Breathing" Tag="Breathing" Style="{StaticResource SegmentedRadio}" Checked="EffectButton_Click" Margin="0,0,8,0" />
+                                        <RadioButton x:Name="RainbowEffectButton" GroupName="Effect" Content="Rainbow" Tag="Rainbow" Style="{StaticResource SegmentedRadio}" Checked="EffectButton_Click" Margin="0,0,8,0" />
+                                        <RadioButton x:Name="PulseEffectButton" GroupName="Effect" Content="Pulse" Tag="Pulse" Style="{StaticResource SegmentedRadio}" Checked="EffectButton_Click" Margin="0,0,8,0" />
+                                        <RadioButton x:Name="ColorCycleEffectButton" GroupName="Effect" Content="Color cycle" Tag="ColorCycle" Style="{StaticResource SegmentedRadio}" Checked="EffectButton_Click" />
+                                    </UniformGrid>
+                                    <Grid x:Name="EffectSpeedPanel" Margin="0,16,0,0" Visibility="Collapsed">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <Grid>
+                                            <TextBlock x:Name="EffectSpeedLabel" Text="Speed" Style="{StaticResource LabelText}" />
+                                            <TextBlock x:Name="EffectSpeedText" Text="50%" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <Grid Grid.Row="1" Margin="0,4,0,0">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="Slow" Style="{StaticResource CaptionText}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                            <Slider x:Name="EffectSpeedSlider" Grid.Column="1" Minimum="1" Maximum="100" Value="50" Style="{StaticResource BrightnessSlider}"
+                                                    AutomationProperties.LabeledBy="{Binding ElementName=EffectSpeedLabel}" ValueChanged="EffectSpeedSlider_ValueChanged" />
+                                            <TextBlock Grid.Column="2" Text="Fast" Style="{StaticResource CaptionText}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                        </Grid>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Presets -->
+                            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock x:Name="PresetsLabel" Text="Presets" Style="{StaticResource SectionTitleText}" />
+                                            <TextBlock x:Name="PresetHintText" Text="Pick a preset to use it. Your changes are kept until you save." Style="{StaticResource CaptionText}" Margin="0,4,0,0"
+                                                       AutomationProperties.LiveSetting="Polite" />
+                                        </StackPanel>
+                                        <WrapPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                            <Button x:Name="RandomColorButton" AutomationProperties.Name="Random color" Style="{StaticResource PremiumButton}" Margin="8,0,0,0" Click="RandomColorButton_Click" ToolTip="Pick a random vivid color (Ctrl+R)">
+                                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8B1;" Style="{StaticResource IconText}" FontSize="14" Margin="0,0,8,0" /><TextBlock Text="Random" /></StackPanel>
+                                            </Button>
+                                            <Button x:Name="AddPresetButton" AutomationProperties.Name="Save as new preset" Style="{StaticResource PremiumButton}" Margin="8,0,0,0" Click="AddPresetButton_Click" ToolTip="Save the current color as a new preset (Ctrl+N)">
+                                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE710;" Style="{StaticResource IconText}" FontSize="14" Margin="0,0,8,0" /><TextBlock Text="Save as new" /></StackPanel>
+                                            </Button>
+                                            <Button x:Name="ApplyButton" AutomationProperties.Name="Save changes to preset" Style="{StaticResource AccentButton}" Margin="8,0,0,0" Click="ApplyButton_Click" Visibility="Collapsed" ToolTip="Save changes to the selected preset (Ctrl+S)">
+                                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE74E;" Style="{StaticResource IconText}" FontSize="14" Margin="0,0,8,0" Foreground="{DynamicResource AccentForegroundBrush}" /><TextBlock x:Name="ApplyButtonText" Text="Save changes" Foreground="{DynamicResource AccentForegroundBrush}" /></StackPanel>
+                                            </Button>
+                                        </WrapPanel>
+                                    </Grid>
+
+                                    <ItemsControl x:Name="PresetItemsControl" Margin="0,14,0,0" Focusable="False" AutomationProperties.LabeledBy="{Binding ElementName=PresetsLabel}"
+                                                  KeyboardNavigation.DirectionalNavigation="Contained" KeyboardNavigation.TabNavigation="Once">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Width="132" Height="64" Margin="0,0,10,0" Background="{StaticResource PanelAltBrush}" BorderBrush="{Binding BorderHex}" BorderThickness="{Binding CardBorderThickness}" CornerRadius="10">
-                                                    <Grid>
-                                                        <Button Tag="{Binding}" Click="PresetCard_Click" Style="{StaticResource PremiumButton}" Background="Transparent" BorderThickness="0" Padding="10,7" HorizontalContentAlignment="Stretch">
-                                                            <Grid>
-                                                                <Grid.ColumnDefinitions><ColumnDefinition Width="30" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                                                <Ellipse Width="23" Height="23" Fill="{Binding Hex}" VerticalAlignment="Center" />
-                                                                <StackPanel Grid.Column="1" Margin="7,0,0,0" VerticalAlignment="Center">
-                                                                    <TextBlock Text="{Binding DisplayName}" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                                                    <TextBlock Text="{Binding Brightness, StringFormat={}{0}%}" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="0,3,0,0" />
-                                                                </StackPanel>
-                                                            </Grid>
-                                                        </Button>
-                                                        <TextBlock Text="•" FontSize="18" Foreground="{Binding Hex}" Visibility="{Binding DirtyVisibility}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-6,7,0" IsHitTestVisible="False" />
-                                                        <Button Tag="{Binding}" Content="×" Style="{StaticResource PresetDeleteButton}" Click="DeletePresetButton_Click" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,3,0" />
-                                                    </Grid>
-                                                </Border>
+                                                <Grid Margin="0,0,10,10">
+                                                    <RadioButton GroupName="Presets" Style="{StaticResource PresetTile}" Tag="{Binding}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                 Checked="PresetCard_Click" Click="PresetTile_Click" PreviewKeyDown="PresetTile_PreviewKeyDown"
+                                                                 AutomationProperties.Name="{Binding AccessibleName}" AutomationProperties.HelpText="Press Delete to remove this preset." ToolTip="{Binding DisplayName}">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                            <Ellipse Width="24" Height="24" Fill="{Binding Hex}" Stroke="{StaticResource ControlStrokeBrush}" StrokeThickness="1" />
+                                                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding DisplayName}" FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </RadioButton>
+                                                    <Button Tag="{Binding}" Content="&#xE711;" Style="{StaticResource PresetDeleteButton}" Click="DeletePresetButton_Click"
+                                                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,4,0" IsTabStop="False"
+                                                            AutomationProperties.Name="{Binding DeleteName}" ToolTip="Delete preset (Delete key)" />
+                                                </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                    <Button x:Name="AddPresetButton" Width="132" Height="64" Style="{StaticResource PremiumButton}" Background="Transparent" BorderBrush="#505050" BorderThickness="1" Padding="8" Click="AddPresetButton_Click">
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><TextBlock Text="+" FontSize="24" Foreground="{DynamicResource AccentBrush}" Margin="0,-2,8,0" /><TextBlock Text="Add Preset" VerticalAlignment="Center" FontSize="13" /></StackPanel>
-                                    </Button>
+
+                                    <!-- Selected preset editor -->
+                                    <Grid x:Name="PresetEditorPanel" Margin="0,4,0,0" Visibility="Collapsed">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="280" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="PresetNameLabel" Text="Preset name" Style="{StaticResource LabelText}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                        <TextBox x:Name="PresetNameBox" Grid.Column="1" MaxLength="40" AutomationProperties.LabeledBy="{Binding ElementName=PresetNameLabel}"
+                                                 ToolTip="Rename the selected preset (F2)" TextChanged="PresetNameBox_TextChanged" PreviewKeyDown="InputBox_PreviewKeyDown" />
+                                    </Grid>
                                 </StackPanel>
-                            </ScrollViewer>
-                        </Grid>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
 
-                        <Grid Grid.Row="4">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="1*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="1.05*" /></Grid.ColumnDefinitions>
-                            <Button x:Name="ApplyButton" Style="{StaticResource AccentButton}" Click="ApplyButton_Click" IsEnabled="False">
-                                <StackPanel Orientation="Horizontal"><Border Width="30" Height="30" BorderBrush="White" BorderThickness="2" CornerRadius="15" Margin="0,0,14,0"><TextBlock Text="✓" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock x:Name="ApplyButtonText" Text="Apply" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></StackPanel>
-                            </Button>
-                            <Button x:Name="StopButton" Grid.Column="2" Style="{StaticResource PremiumButton}" FontSize="20" Click="StopButton_Click" IsEnabled="False" Background="#151515">
-                                <StackPanel Orientation="Horizontal"><Border Width="30" Height="30" BorderBrush="White" BorderThickness="2" CornerRadius="15" Margin="0,0,14,0"><Rectangle Width="11" Height="11" Fill="White" RadiusX="2" RadiusY="2" /></Border><TextBlock Text="Stop" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></StackPanel>
-                            </Button>
-                        </Grid>
-                    </Grid>
-                        <ui:SettingsView x:Name="IntegratedSettingsView" Visibility="Collapsed"
-                                         RestoreRequested="IntegratedSettingsView_RestoreRequested"
-                                         BackRequested="IntegratedSettingsView_BackRequested"
-                                         CheckForUpdatesRequested="IntegratedSettingsView_CheckForUpdatesRequested"
-                                         UpdateNowRequested="IntegratedSettingsView_UpdateNowRequested"
-                                         CancelDownloadRequested="IntegratedSettingsView_CancelDownloadRequested"
-                                         InstallAndRestartRequested="IntegratedSettingsView_InstallAndRestartRequested"
-                                         AutomaticUpdateCheckChanged="IntegratedSettingsView_AutomaticUpdateCheckChanged" />
-                    </Grid>
+                    <ui:SettingsView x:Name="IntegratedSettingsView" Visibility="Collapsed" AutomationProperties.Name="Settings page"
+                                     RestoreRequested="IntegratedSettingsView_RestoreRequested"
+                                     BackRequested="IntegratedSettingsView_BackRequested"
+                                     CheckForUpdatesRequested="IntegratedSettingsView_CheckForUpdatesRequested"
+                                     UpdateNowRequested="IntegratedSettingsView_UpdateNowRequested"
+                                     CancelDownloadRequested="IntegratedSettingsView_CancelDownloadRequested"
+                                     InstallAndRestartRequested="IntegratedSettingsView_InstallAndRestartRequested"
+                                     AutomaticUpdateCheckChanged="IntegratedSettingsView_AutomaticUpdateCheckChanged"
+                                     StartWithWindowsChanged="IntegratedSettingsView_StartWithWindowsChanged" />
                 </Grid>
-
-                <!-- Footer -->
-                <Border Grid.Row="3" Style="{StaticResource CardStyle}" Margin="26,8,26,12" CornerRadius="14" Padding="20,0">
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="16" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock Text="⌁" Foreground="{StaticResource ConnectedBrush}" FontSize="25" VerticalAlignment="Center" />
-                        <TextBlock x:Name="FooterConnectionText" Grid.Column="2" Text="Checking FIFINE SC3" Foreground="{StaticResource SecondaryTextBrush}" FontSize="13.5" VerticalAlignment="Center" />
-                        <Border Grid.Column="3" Width="1" Height="20" Background="#303030" VerticalAlignment="Center" />
-                        <StackPanel x:Name="FooterStatusPanel" Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="USB" Foreground="{StaticResource SecondaryTextBrush}" FontSize="13" />
-                            <Ellipse Width="5" Height="5" Fill="{StaticResource MutedBrush}" Margin="12,0" />
-                            <TextBlock x:Name="FooterReadyText" Text="Checking HID" Foreground="{StaticResource SecondaryTextBrush}" FontSize="13" />
-                            <TextBlock x:Name="TransferStatusText" Text="" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="18,1,0,0" TextTrimming="CharacterEllipsis" MaxWidth="310" />
-                        </StackPanel>
-                        <Border x:Name="UpdateBanner" Grid.Column="4" Visibility="Collapsed" Background="#101510" BorderBrush="{StaticResource ConnectedBrush}" BorderThickness="1" CornerRadius="10" Padding="12,5" Margin="0,4,12,4" MinHeight="44">
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                <TextBlock x:Name="UpdateBannerText" Text="Update available" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                <Button Grid.Column="1" Content="Update Now" Height="32" MinWidth="98" Margin="12,0,8,0" Padding="12,4"
-                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center" FontSize="12" Style="{StaticResource PremiumButton}"
-                                        Background="#151B17" BorderBrush="{StaticResource ConnectedBrush}" FocusVisualStyle="{x:Null}" Click="UpdateBannerButton_Click"/>
-                                <Button Grid.Column="2" Content="Later" Height="32" MinWidth="72" Padding="11,4"
-                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center" FontSize="12" Style="{StaticResource PremiumButton}"
-                                        FocusVisualStyle="{x:Null}" Click="UpdateBannerLaterButton_Click"/>
-                            </Grid>
-                        </Border>
-                        <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button x:Name="FirmwareSetupButton" Style="{StaticResource PremiumButton}" Background="#FF7800" BorderThickness="0" Padding="12,5" Margin="0,0,12,0" Click="FirmwareSetupButton_Click" Visibility="Collapsed">
-                                <TextBlock Text="Enable RGB Control" Foreground="White" FontSize="13" FontWeight="SemiBold" />
-                            </Button>
-                            <TextBlock Text="Having issues?" Foreground="{StaticResource MutedBrush}" FontSize="12.5" VerticalAlignment="Center" Margin="0,0,14,0" />
-                            <Button x:Name="FooterReconnectButton" Style="{StaticResource PremiumButton}" Background="Transparent" BorderThickness="0" Padding="4" Click="ReconnectButton_Click">
-                                <TextBlock Text="Reconnect  ›" Foreground="{DynamicResource AccentBrush}" FontSize="13.5" FontWeight="SemiBold" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                </Border>
             </Grid>
-        </Border>
+
+            <!-- Status bar -->
+            <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,0" MinHeight="44">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="FooterConnectionText" Text="Looking for FIFINE SC3" FontSize="13" Foreground="{StaticResource SecondaryTextBrush}" />
+                        <TextBlock Text="·" Foreground="{StaticResource MutedBrush}" Margin="10,0" />
+                        <TextBlock x:Name="FooterReadyText" Text="Checking" FontSize="13" Foreground="{StaticResource SecondaryTextBrush}" />
+                    </StackPanel>
+                    <StackPanel x:Name="FooterStatusPanel" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
+                        <TextBlock x:Name="TransferStatusText" Text="" FontSize="13" Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis" MaxWidth="420" VerticalAlignment="Center"
+                                  
+                                   AutomationProperties.LiveSetting="Polite" />
+                        <Button x:Name="UndoDeleteButton" Style="{StaticResource SubtleButton}" Content="Undo" Margin="8,0,0,0" Padding="8,2" MinHeight="28" Visibility="Collapsed"
+                                Foreground="{DynamicResource AccentTextBrush}" Click="UndoDeleteButton_Click" ToolTip="Restore the deleted preset (Ctrl+Z)" />
+                    </StackPanel>
+                    <Border x:Name="UpdateBanner" Grid.Column="2" Visibility="Collapsed" HorizontalAlignment="Right" Background="{StaticResource SuccessBarBackgroundBrush}" BorderBrush="{StaticResource ConnectedBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="12,4" Margin="12,6">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="UpdateBannerText" Text="Update available" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <Button Content="Update now" MinHeight="28" Padding="10,2" Margin="12,0,6,0" FontSize="12.5" Style="{StaticResource PremiumButton}" Click="UpdateBannerButton_Click" />
+                            <Button Content="Later" MinHeight="28" Padding="10,2" FontSize="12.5" Style="{StaticResource SubtleButton}" Click="UpdateBannerLaterButton_Click" />
+                        </StackPanel>
+                    </Border>
+                    <Button x:Name="FooterReconnectButton" AutomationProperties.Name="Reconnect to SC3" Grid.Column="3" Style="{StaticResource SubtleButton}" Click="ReconnectButton_Click" VerticalAlignment="Center"
+                            ToolTip="Reconnect to the SC3 if lighting stops responding">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE72C;" Style="{StaticResource IconText}" FontSize="13" Margin="0,0,8,0" /><TextBlock Text="Reconnect" FontSize="13" /></StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+        </Grid>
     </Border>
 </Window>

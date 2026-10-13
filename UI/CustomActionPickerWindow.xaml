@@ -1,0 +1,520 @@
+<Window x:Class="SC3RGBController.UI.CustomActionPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Choose an action" Width="800" Height="620" MinWidth="640" MinHeight="480"
+        SizeToContent="Manual" ResizeMode="CanResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}"
+        UseLayoutRounding="True">
+    <Window.Resources>
+        <!-- Focus ring drawn inside list items so the list's scroll viewport never clips it. -->
+        <Style x:Key="ItemFocusVisual" TargetType="Control">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border BorderBrush="{DynamicResource FocusRingBrush}" BorderThickness="2" CornerRadius="6" IsHitTestVisible="False">
+                            <Border BorderBrush="#000000" BorderThickness="1" CornerRadius="5" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PickerList" TargetType="ListBox">
+            <Setter Property="Background" Value="{StaticResource InputBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource ControlStrokeBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource DarkFocusVisualStyle}" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+            <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
+            <Setter Property="VirtualizingPanel.IsVirtualizingWhenGrouping" Value="True" />
+            <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel" />
+            <Setter Property="IsTextSearchEnabled" Value="False" />
+            <Setter Property="SelectionMode" Value="Single" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBox">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                            <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}" CanContentScroll="True">
+                                <ItemsPresenter />
+                            </ScrollViewer>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PickerListItem" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource ItemFocusVisual}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Chrome" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Indicator" Width="3" Height="18" CornerRadius="2" Margin="0,0,8,0"
+                                        Background="{DynamicResource AccentTextBrush}" Visibility="Hidden" />
+                                <ContentPresenter Grid.Column="1" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                                <TextBlock x:Name="Check" Grid.Column="2" Style="{StaticResource IconText}" Text="&#xE73E;" FontSize="14"
+                                           Margin="8,0,4,0" Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PressedBrush}" />
+                                <Setter TargetName="Indicator" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <EventSetter Event="MouseDoubleClick" Handler="ListItem_MouseDoubleClick" />
+        </Style>
+
+        <DataTemplate x:Key="AppItemTemplate">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Image x:Name="AppIcon" Width="24" Height="24" Source="{Binding Icon}" RenderOptions.BitmapScalingMode="HighQuality" />
+                <TextBlock x:Name="FallbackGlyph" Style="{StaticResource IconText}" Text="&#xE71D;" FontSize="18"
+                           HorizontalAlignment="Center" Foreground="{StaticResource SecondaryTextBrush}" Visibility="Collapsed" />
+                <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="12,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                    <Setter TargetName="AppIcon" Property="Visibility" Value="Collapsed" />
+                    <Setter TargetName="FallbackGlyph" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- Large selectable option: radio semantics; selection shown by a check badge and thicker outline, not color alone. -->
+        <Style x:Key="OptionCard" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="Padding" Value="14,12" />
+            <Setter Property="MinHeight" Value="60" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource DarkFocusVisualStyle}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="2" CornerRadius="10" Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                                <Border x:Name="CheckBadge" Grid.Column="1" Width="22" Height="22" CornerRadius="11" Margin="10,0,0,0"
+                                        Background="{DynamicResource AccentBrush}" VerticalAlignment="Center" Visibility="Hidden">
+                                    <TextBlock Style="{StaticResource IconText}" Text="&#xE73E;" FontSize="12" HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource AccentForegroundBrush}" />
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource ControlStrokeBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentTextBrush}" />
+                                <Setter TargetName="CheckBadge" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SearchPlaceholder" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="Margin" Value="40,0,12,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+
+        <Style x:Key="GroupHeaderStyle" TargetType="GroupItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GroupItem">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Name}" Style="{StaticResource LabelText}" Margin="10,10,0,4"
+                                       AutomationProperties.HeadingLevel="Level3" />
+                            <ItemsPresenter />
+                        </StackPanel>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Margin="20,18,20,14">
+            <TextBlock x:Name="TitleText" Text="Choose what Custom A does" Style="{StaticResource PageTitleText}" FontSize="22" TextWrapping="Wrap" />
+            <TextBlock x:Name="SubtitleText" Style="{StaticResource CaptionText}" Margin="0,4,0,0"
+                       Text="Pick an app to open, an app to control, your microphone, or a media key." />
+        </StackPanel>
+
+        <!-- Body -->
+        <Grid Grid.Row="1" Margin="12,0,20,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="172" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel x:Name="CategoryPanel" Margin="0,0,10,0" AutomationProperties.Name="Action type">
+                <RadioButton x:Name="OpenAppCategory" GroupName="PickerCategory" Style="{StaticResource NavItem}" Margin="0,0,0,4"
+                             AutomationProperties.Name="Open an app" Checked="Category_Checked">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE8A7;" Margin="0,0,12,0" />
+                        <TextBlock Text="Open an app" VerticalAlignment="Center" />
+                    </StackPanel>
+                </RadioButton>
+                <RadioButton x:Name="AppAudioCategory" GroupName="PickerCategory" Style="{StaticResource NavItem}" Margin="0,0,0,4"
+                             AutomationProperties.Name="App audio" Checked="Category_Checked">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE767;" Margin="0,0,12,0" />
+                        <TextBlock Text="App audio" VerticalAlignment="Center" />
+                    </StackPanel>
+                </RadioButton>
+                <RadioButton x:Name="MicrophoneCategory" GroupName="PickerCategory" Style="{StaticResource NavItem}" Margin="0,0,0,4"
+                             AutomationProperties.Name="Microphone" Checked="Category_Checked">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE720;" Margin="0,0,12,0" />
+                        <TextBlock Text="Microphone" VerticalAlignment="Center" />
+                    </StackPanel>
+                </RadioButton>
+                <RadioButton x:Name="MediaCategory" GroupName="PickerCategory" Style="{StaticResource NavItem}" Margin="0,0,0,4"
+                             AutomationProperties.Name="Media and volume" Checked="Category_Checked">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE8D6;" Margin="0,0,12,0" />
+                        <TextBlock Text="Media &amp; volume" VerticalAlignment="Center" />
+                    </StackPanel>
+                </RadioButton>
+            </StackPanel>
+
+            <Border Grid.Column="1" Style="{StaticResource CardStyle}" Padding="14">
+                <Grid>
+                    <!-- ===== Open an app ===== -->
+                    <Grid x:Name="OpenAppPanel">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid>
+                            <TextBox x:Name="LaunchSearchBox" Padding="40,0,12,0" AutomationProperties.Name="Search apps"
+                                     AutomationProperties.HelpText="Type to filter the list of installed apps. Press Down arrow to move to the list."
+                                     TextChanged="LaunchSearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown" />
+                            <TextBlock Style="{StaticResource IconText}" Text="&#xE721;" Margin="14,0,0,0" HorizontalAlignment="Left"
+                                       Foreground="{StaticResource SecondaryTextBrush}" IsHitTestVisible="False" />
+                            <TextBlock Text="Search apps">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource SearchPlaceholder}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=LaunchSearchBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <ListBox x:Name="LaunchList" Grid.Row="1" Margin="0,10,0,0" Style="{StaticResource PickerList}"
+                                 ItemContainerStyle="{StaticResource PickerListItem}" ItemTemplate="{StaticResource AppItemTemplate}"
+                                 AutomationProperties.Name="Installed apps"
+                                 SelectionChanged="LaunchList_SelectionChanged" PreviewTextInput="List_PreviewTextInput" />
+                        <TextBlock x:Name="LaunchStatusText" Grid.Row="1" Margin="16,26,16,0" Style="{StaticResource CaptionText}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Top" TextAlignment="Center"
+                                   Text="Loading your apps…" AutomationProperties.LiveSetting="Polite" />
+
+                        <Grid Grid.Row="2" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="BrowseProgramButton" Style="{StaticResource SubtleButton}" Click="BrowseProgram_Click"
+                                    AutomationProperties.Name="Browse for a program"
+                                    AutomationProperties.HelpText="Choose any program or shortcut file that is not in the list.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource IconText}" Text="&#xE8E5;" Margin="0,0,8,0" />
+                                    <TextBlock Text="Browse for a program…" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <TextBlock x:Name="LaunchChosenText" Grid.Column="1" Style="{StaticResource CaptionText}" Margin="12,0,0,0"
+                                       VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
+                        </Grid>
+                    </Grid>
+
+                    <!-- ===== App audio ===== -->
+                    <Grid x:Name="AppAudioPanel" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <UniformGrid Columns="3" AutomationProperties.Name="What the button does to the app">
+                            <RadioButton x:Name="AudioMuteOption" GroupName="AudioKind" Style="{StaticResource SegmentedRadio}" Margin="0,0,4,0"
+                                         Content="Mute / unmute" Padding="6,6" FontSize="13" AutomationProperties.Name="Mute or unmute the app" IsChecked="True" Checked="AudioKind_Checked" />
+                            <RadioButton x:Name="AudioUpOption" GroupName="AudioKind" Style="{StaticResource SegmentedRadio}" Margin="2,0,2,0"
+                                         Content="Volume up" Padding="6,6" FontSize="13" AutomationProperties.Name="Turn the app volume up" Checked="AudioKind_Checked" />
+                            <RadioButton x:Name="AudioDownOption" GroupName="AudioKind" Style="{StaticResource SegmentedRadio}" Margin="4,0,0,0"
+                                         Content="Volume down" Padding="6,6" FontSize="13" AutomationProperties.Name="Turn the app volume down" Checked="AudioKind_Checked" />
+                        </UniformGrid>
+
+                        <Grid x:Name="AudioStepRow" Grid.Row="1" Margin="0,10,0,0" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="AudioStepLabel" Text="Change by" Style="{StaticResource LabelText}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <UniformGrid x:Name="AudioStepGroup" Grid.Column="1" Columns="3" MaxWidth="260" HorizontalAlignment="Left"
+                                         AutomationProperties.LabeledBy="{Binding ElementName=AudioStepLabel}">
+                                <RadioButton GroupName="AudioStep" Tag="5" Content="5%" Style="{StaticResource SegmentedRadio}" Margin="0,0,4,0"
+                                             AutomationProperties.Name="Change by 5 percent" Checked="Step_Checked" />
+                                <RadioButton GroupName="AudioStep" Tag="10" Content="10%" Style="{StaticResource SegmentedRadio}" Margin="2,0,2,0"
+                                             AutomationProperties.Name="Change by 10 percent" Checked="Step_Checked" />
+                                <RadioButton GroupName="AudioStep" Tag="20" Content="20%" Style="{StaticResource SegmentedRadio}" Margin="4,0,0,0"
+                                             AutomationProperties.Name="Change by 20 percent" Checked="Step_Checked" />
+                            </UniformGrid>
+                        </Grid>
+
+                        <StackPanel Grid.Row="2" Margin="0,10,0,0">
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       Text="Works while the app is open and playing sound. Applies to every window of that app." />
+                            <TextBlock x:Name="PlayingInfoText" Style="{StaticResource CaptionText}" Margin="0,4,0,0" Visibility="Collapsed"
+                                       Foreground="{StaticResource TextBrush}" AutomationProperties.LiveSetting="Polite" />
+                        </StackPanel>
+
+                        <Grid Grid.Row="3" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="150" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="AudioSearchBox" Padding="40,0,12,0" AutomationProperties.Name="Search apps"
+                                     AutomationProperties.HelpText="Type to filter the apps. Press Down arrow to move to the list."
+                                     TextChanged="AudioSearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown" />
+                            <TextBlock Style="{StaticResource IconText}" Text="&#xE721;" Margin="14,0,0,0" HorizontalAlignment="Left"
+                                       Foreground="{StaticResource SecondaryTextBrush}" IsHitTestVisible="False" />
+                            <TextBlock Text="Search apps">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource SearchPlaceholder}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=AudioSearchBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <Button x:Name="RefreshAudioButton" Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource SubtleButton}"
+                                    MinWidth="38" Padding="10,6" Click="RefreshAudio_Click"
+                                    ToolTip="Refresh the list of apps playing audio" AutomationProperties.Name="Refresh apps playing audio">
+                                <TextBlock Style="{StaticResource IconText}" Text="&#xE72C;" />
+                            </Button>
+                            <Button x:Name="PickAudioProgramButton" Grid.Column="2" Margin="2,0,0,0" Style="{StaticResource SubtleButton}"
+                                    Click="PickAudioProgram_Click" AutomationProperties.Name="Pick a program"
+                                    AutomationProperties.HelpText="Choose the program file of an app that is not in the list.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource IconText}" Text="&#xE8E5;" Margin="0,0,8,0" />
+                                    <TextBlock Text="Pick a program…" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <ListBox x:Name="AudioList" Grid.Row="4" Margin="0,10,0,0" MinHeight="80" Style="{StaticResource PickerList}"
+                                 ItemContainerStyle="{StaticResource PickerListItem}" ItemTemplate="{StaticResource AppItemTemplate}"
+                                 AutomationProperties.Name="Apps to control"
+                                 SelectionChanged="AudioList_SelectionChanged" PreviewTextInput="List_PreviewTextInput">
+                            <ListBox.GroupStyle>
+                                <GroupStyle ContainerStyle="{StaticResource GroupHeaderStyle}" />
+                            </ListBox.GroupStyle>
+                        </ListBox>
+                        <TextBlock x:Name="AudioStatusText" Grid.Row="4" Margin="16,26,16,0" Style="{StaticResource CaptionText}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Top" TextAlignment="Center"
+                                   Text="Loading your apps…" AutomationProperties.LiveSetting="Polite" />
+
+                        <TextBlock x:Name="AudioChosenText" Grid.Row="5" Style="{StaticResource CaptionText}" Margin="0,8,0,0"
+                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
+                    </Grid>
+
+                    <!-- ===== Microphone ===== -->
+                    <StackPanel x:Name="MicrophonePanel" Visibility="Collapsed">
+                        <RadioButton x:Name="MicOption" GroupName="MicKind" Style="{StaticResource OptionCard}" MinHeight="84"
+                                     AutomationProperties.Name="Mute or unmute microphone"
+                                     AutomationProperties.HelpText="Toggles your default Windows microphone. Great for calls and streams."
+                                     Checked="Option_Checked">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Style="{StaticResource IconText}" Text="&#xE720;" FontSize="24" Margin="2,0,16,0" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="Mute / unmute microphone" FontSize="15" FontWeight="SemiBold" />
+                                    <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0"
+                                               Text="Toggles your default Windows microphone. Great for calls and streams." />
+                                </StackPanel>
+                            </Grid>
+                        </RadioButton>
+                    </StackPanel>
+
+                    <!-- ===== Media & volume ===== -->
+                    <ScrollViewer x:Name="MediaPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  Focusable="False" Padding="0,0,4,0">
+                        <StackPanel>
+                            <UniformGrid x:Name="MediaOptions" Columns="2" AutomationProperties.Name="Media and volume actions">
+                                <RadioButton GroupName="MediaKind" Tag="MediaPlayPause" Style="{StaticResource OptionCard}" Margin="0,0,6,8"
+                                             AutomationProperties.Name="Play or pause" Checked="Option_Checked">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource IconText}" Text="&#xE768;" FontSize="18" Margin="0,0,12,0" />
+                                        <TextBlock Grid.Column="1" Text="Play / pause" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    </Grid>
+                                </RadioButton>
+                                <RadioButton GroupName="MediaKind" Tag="SystemMuteToggle" Style="{StaticResource OptionCard}" Margin="6,0,0,8"
+                                             AutomationProperties.Name="Mute or unmute system sound" Checked="Option_Checked">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource IconText}" Text="&#xE74F;" FontSize="18" Margin="0,0,12,0" />
+                                        <TextBlock Grid.Column="1" Text="Mute / unmute system sound" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    </Grid>
+                                </RadioButton>
+                                <RadioButton GroupName="MediaKind" Tag="MediaNext" Style="{StaticResource OptionCard}" Margin="0,0,6,8"
+                                             AutomationProperties.Name="Next track" Checked="Option_Checked">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource IconText}" Text="&#xE893;" FontSize="18" Margin="0,0,12,0" />
+                                        <TextBlock Grid.Column="1" Text="Next track" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    </Grid>
+                                </RadioButton>
+                                <RadioButton GroupName="MediaKind" Tag="SystemVolumeUp" Style="{StaticResource OptionCard}" Margin="6,0,0,8"
+                                             AutomationProperties.Name="System volume up" Checked="Option_Checked">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource IconText}" Text="&#xE995;" FontSize="18" Margin="0,0,12,0" />
+                                        <TextBlock Grid.Column="1" Text="System volume up" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    </Grid>
+                                </RadioButton>
+                                <RadioButton GroupName="MediaKind" Tag="MediaPrevious" Style="{StaticResource OptionCard}" Margin="0,0,6,8"
+                                             AutomationProperties.Name="Previous track" Checked="Option_Checked">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource IconText}" Text="&#xE892;" FontSize="18" Margin="0,0,12,0" />
+                                        <TextBlock Grid.Column="1" Text="Previous track" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    </Grid>
+                                </RadioButton>
+                                <RadioButton GroupName="MediaKind" Tag="SystemVolumeDown" Style="{StaticResource OptionCard}" Margin="6,0,0,8"
+                                             AutomationProperties.Name="System volume down" Checked="Option_Checked">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource IconText}" Text="&#xE993;" FontSize="18" Margin="0,0,12,0" />
+                                        <TextBlock Grid.Column="1" Text="System volume down" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    </Grid>
+                                </RadioButton>
+                            </UniformGrid>
+
+                            <Grid x:Name="MediaStepRow" Margin="0,6,0,0" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="MediaStepLabel" Text="Change by" Style="{StaticResource LabelText}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                <UniformGrid x:Name="MediaStepGroup" Grid.Column="1" Columns="3" MaxWidth="260" HorizontalAlignment="Left"
+                                             AutomationProperties.LabeledBy="{Binding ElementName=MediaStepLabel}">
+                                    <RadioButton GroupName="MediaStep" Tag="5" Content="5%" Style="{StaticResource SegmentedRadio}" Margin="0,0,4,0"
+                                                 AutomationProperties.Name="Change by 5 percent" Checked="Step_Checked" />
+                                    <RadioButton GroupName="MediaStep" Tag="10" Content="10%" Style="{StaticResource SegmentedRadio}" Margin="2,0,2,0"
+                                                 AutomationProperties.Name="Change by 10 percent" Checked="Step_Checked" />
+                                    <RadioButton GroupName="MediaStep" Tag="20" Content="20%" Style="{StaticResource SegmentedRadio}" Margin="4,0,0,0"
+                                                 AutomationProperties.Name="Change by 20 percent" Checked="Step_Checked" />
+                                </UniformGrid>
+                            </Grid>
+                            <TextBlock Style="{StaticResource CaptionText}" Margin="0,10,0,0"
+                                       Text="Media keys control whichever app is playing, like Spotify, YouTube in your browser, or Media Player." />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Summary + footer -->
+        <Grid Grid.Row="2" Margin="20,14,20,18">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,14">
+                <TextBlock Style="{StaticResource IconText}" Text="&#xE945;" Foreground="{DynamicResource AccentTextBrush}" Margin="0,0,10,0" />
+                <TextBlock x:Name="SummaryText" Text="Choose an action for Custom A." FontSize="14.5" FontWeight="SemiBold"
+                           VerticalAlignment="Center" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+
+            <Button x:Name="ClearButton" Grid.Row="1" Style="{StaticResource SubtleButton}" Click="Clear_Click"
+                    AutomationProperties.Name="Clear assignment"
+                    AutomationProperties.HelpText="Removes the current action so the button does nothing.">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource IconText}" Text="&#xE894;" Margin="0,0,8,0" />
+                    <TextBlock Text="Clear assignment" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal">
+                <Button x:Name="CancelButton" Content="Cancel" MinWidth="110" Margin="0,0,10,0" Style="{StaticResource PremiumButton}"
+                        IsCancel="True" Click="Cancel_Click" />
+                <Button x:Name="AssignButton" Content="Assign" MinWidth="120" Style="{StaticResource AccentButton}"
+                        IsDefault="True" IsEnabled="False" Click="Assign_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

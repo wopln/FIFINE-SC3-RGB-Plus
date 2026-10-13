@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation.Peers;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -13,6 +14,16 @@ public sealed class HsvColorPicker : FrameworkElement
         nameof(SelectedColor), typeof(Color), typeof(HsvColorPicker),
         new FrameworkPropertyMetadata(Color.FromRgb(255, 120, 0), FrameworkPropertyMetadataOptions.AffectsRender, OnSelectedColorChanged));
 
+    // Hue ring segments: one frozen brush per 2 degrees, shared by every instance.
+    private const int HueSegmentStep = 2;
+    private static readonly SolidColorBrush[] HueSegmentBrushes = CreateHueSegmentBrushes();
+
+    // Selector strokes: 3px white plus a 1.5px black outer edge keeps both selectors
+    // visible (>= 3:1) on light and dark colors alike.
+    private static readonly Pen SelectorWhitePen = Freeze(new Pen(Brushes.White, 3));
+    private static readonly Pen SelectorBlackPen = Freeze(new Pen(Brushes.Black, 1.5));
+    private static readonly Pen SaturationValueEdgePen = Freeze(new Pen(Freeze(new SolidColorBrush(Color.FromRgb(28, 28, 28))), 3));
+
     private double _hue = 28.235;
     private double _saturation = 1;
     private double _value = 1;
@@ -20,11 +31,13 @@ public sealed class HsvColorPicker : FrameworkElement
     private WriteableBitmap? _svBitmap;
     private InteractionMode _interaction;
     private bool _settingInternally;
+    private Pen[]? _hueSegmentPens;
+    private double _hueSegmentPenThickness = double.NaN;
 
     public HsvColorPicker()
     {
         Focusable = true;
-        FocusVisualStyle = null;
+        FocusVisualStyle = null; // Focus ring is drawn in OnRender.
         Cursor = Cursors.Cross;
         SnapsToDevicePixels = true;
         MinWidth = 240;
@@ -38,6 +51,18 @@ public sealed class HsvColorPicker : FrameworkElement
     }
 
     public event EventHandler? SelectedColorChanged;
+
+    internal double Hue => _hue;
+    internal double Saturation => _saturation;
+    internal double Brightness => _value;
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new HsvColorPickerAutomationPeer(this);
+
+    /// <summary>Sets the color from UI Automation (ValuePattern.SetValue), preserving any binding.</summary>
+    internal void SetColorFromAutomation(Color color)
+    {
+        SetCurrentValue(SelectedColorProperty, color);
+    }
 
     protected override void OnRender(DrawingContext drawingContext)
     {
@@ -55,13 +80,33 @@ public sealed class HsvColorPicker : FrameworkElement
 
         if (IsKeyboardFocused)
         {
-            drawingContext.DrawRoundedRectangle(
-                null,
-                new Pen(new SolidColorBrush(Color.FromRgb(255, 120, 0)), 1),
-                new Rect(1, 1, Math.Max(0, ActualWidth - 2), Math.Max(0, ActualHeight - 2)),
-                10,
-                10);
+            DrawFocusRing(drawingContext);
         }
+    }
+
+    private void DrawFocusRing(DrawingContext dc)
+    {
+        bool highContrast = SystemParameters.HighContrast;
+        Brush ringBrush = highContrast
+            ? SystemColors.HighlightBrush
+            : TryFindResource("FocusRingBrush") as Brush ?? Brushes.White;
+        Brush innerBrush = highContrast ? SystemColors.WindowBrush : Brushes.Black;
+
+        double width = ActualWidth;
+        double height = ActualHeight;
+        // 2px ring occupying 0..2px from the edge, then a 1px contrasting line at 2..3px.
+        dc.DrawRoundedRectangle(
+            null,
+            new Pen(ringBrush, 2),
+            new Rect(1, 1, Math.Max(0, width - 2), Math.Max(0, height - 2)),
+            10,
+            10);
+        dc.DrawRoundedRectangle(
+            null,
+            new Pen(innerBrush, 1),
+            new Rect(2.5, 2.5, Math.Max(0, width - 5), Math.Max(0, height - 5)),
+            8.5,
+            8.5);
     }
 
     protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
@@ -109,9 +154,12 @@ public sealed class HsvColorPicker : FrameworkElement
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        double step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 0.05 : 0.01;
+        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        double step = shift ? 0.05 : 0.01;
+        double hueStep = shift ? 15 : 5;
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
+            // Ctrl+Left/Right: fine hue. Other Ctrl chords (e.g. Ctrl+PageUp for tab switching) pass through.
             if (e.Key == Key.Left) _hue = (_hue + 359) % 360;
             else if (e.Key == Key.Right) _hue = (_hue + 1) % 360;
             else { base.OnKeyDown(e); return; }
@@ -124,6 +172,9 @@ public sealed class HsvColorPicker : FrameworkElement
                 case Key.Right: _saturation = Math.Min(1, _saturation + step); break;
                 case Key.Up: _value = Math.Min(1, _value + step); break;
                 case Key.Down: _value = Math.Max(0, _value - step); break;
+                case Key.PageUp: _hue = WrapHue(_hue - hueStep); break;
+                case Key.PageDown: _hue = WrapHue(_hue + hueStep); break;
+                case Key.Home: _saturation = 1; _value = 1; break; // Pure, fully bright version of the current hue.
                 default: base.OnKeyDown(e); return;
             }
         }
@@ -131,6 +182,8 @@ public sealed class HsvColorPicker : FrameworkElement
         CommitColor();
         e.Handled = true;
     }
+
+    private static double WrapHue(double hue) => (hue % 360 + 360) % 360;
 
     private static void OnSelectedColorChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -140,6 +193,13 @@ public sealed class HsvColorPicker : FrameworkElement
             (picker._hue, picker._saturation, picker._value) = RgbToHsv((Color)e.NewValue, picker._hue);
             picker.InvalidateVisual();
         }
+
+        // Only notify if a peer already exists (i.e. an automation client has asked for one).
+        if (UIElementAutomationPeer.FromElement(picker) is HsvColorPickerAutomationPeer peer)
+        {
+            peer.RaiseValueChanged();
+        }
+
         picker.SelectedColorChanged?.Invoke(picker, EventArgs.Empty);
     }
 
@@ -181,26 +241,67 @@ public sealed class HsvColorPicker : FrameworkElement
     private void CommitColor()
     {
         _settingInternally = true;
-        SetCurrentValue(SelectedColorProperty, ColorFromHsv(_hue, _saturation, _value));
-        _settingInternally = false;
+        try
+        {
+            SetCurrentValue(SelectedColorProperty, ColorFromHsv(_hue, _saturation, _value));
+        }
+        finally
+        {
+            _settingInternally = false;
+        }
         InvalidateVisual();
     }
 
-    private static void DrawHueRing(DrawingContext dc, Point center, double radius, double thickness)
+    private void DrawHueRing(DrawingContext dc, Point center, double radius, double thickness)
     {
-        for (int degree = 0; degree < 360; degree += 2)
+        Pen[] pens = GetHueSegmentPens(thickness);
+        for (int i = 0; i < pens.Length; i++)
         {
+            int degree = i * HueSegmentStep;
             double a1 = degree * Math.PI / 180;
             double a2 = (degree + 2.6) * Math.PI / 180;
             Point p1 = new(center.X + Math.Cos(a1) * radius, center.Y + Math.Sin(a1) * radius);
             Point p2 = new(center.X + Math.Cos(a2) * radius, center.Y + Math.Sin(a2) * radius);
-            Pen pen = new(new SolidColorBrush(ColorFromHsv(degree, 1, 1)), thickness)
+            dc.DrawLine(pens[i], p1, p2);
+        }
+    }
+
+    private Pen[] GetHueSegmentPens(double thickness)
+    {
+        if (_hueSegmentPens is not null && _hueSegmentPenThickness == thickness)
+        {
+            return _hueSegmentPens;
+        }
+
+        Pen[] pens = new Pen[HueSegmentBrushes.Length];
+        for (int i = 0; i < pens.Length; i++)
+        {
+            pens[i] = Freeze(new Pen(HueSegmentBrushes[i], thickness)
             {
                 StartLineCap = PenLineCap.Square,
                 EndLineCap = PenLineCap.Square
-            };
-            dc.DrawLine(pen, p1, p2);
+            });
         }
+
+        _hueSegmentPens = pens;
+        _hueSegmentPenThickness = thickness;
+        return pens;
+    }
+
+    private static SolidColorBrush[] CreateHueSegmentBrushes()
+    {
+        SolidColorBrush[] brushes = new SolidColorBrush[360 / HueSegmentStep];
+        for (int i = 0; i < brushes.Length; i++)
+        {
+            brushes[i] = Freeze(new SolidColorBrush(ColorFromHsv(i * HueSegmentStep, 1, 1)));
+        }
+        return brushes;
+    }
+
+    private static T Freeze<T>(T freezable) where T : Freezable
+    {
+        freezable.Freeze();
+        return freezable;
     }
 
     private void DrawSaturationValue(DrawingContext dc, Point center, double radius)
@@ -210,22 +311,24 @@ public sealed class HsvColorPicker : FrameworkElement
         dc.PushClip(new EllipseGeometry(center, radius, radius));
         dc.DrawImage(_svBitmap, rect);
         dc.Pop();
-        dc.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromRgb(28, 28, 28)), 3), center, radius, radius);
+        dc.DrawEllipse(null, SaturationValueEdgePen, center, radius, radius);
     }
 
     private void DrawSelectors(DrawingContext dc, Point center, double ringRadius, double innerRadius)
     {
+        // Hue selector: white ring centered at r=13 (11.5..14.5), black outer edge at 14.5..16.
         double angle = _hue * Math.PI / 180;
         Point huePoint = new(center.X + Math.Cos(angle) * ringRadius, center.Y + Math.Sin(angle) * ringRadius);
-        dc.DrawEllipse(null, new Pen(Brushes.White, 3), huePoint, 13, 13);
-        dc.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(120, 0, 0, 0)), 2), huePoint, 16, 16);
+        dc.DrawEllipse(null, SelectorWhitePen, huePoint, 13, 13);
+        dc.DrawEllipse(null, SelectorBlackPen, huePoint, 15.25, 15.25);
 
+        // Saturation/value selector: swatch of the current color, white ring (6.5..9.5), black outer edge (9.5..11).
         double halfExtent = innerRadius / Math.Sqrt(2);
         Point svPoint = new(
             center.X + (2 * _saturation - 1) * halfExtent,
             center.Y + (1 - 2 * _value) * halfExtent);
-        dc.DrawEllipse(new SolidColorBrush(SelectedColor), new Pen(Brushes.White, 3), svPoint, 8, 8);
-        dc.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)), 1), svPoint, 11, 11);
+        dc.DrawEllipse(new SolidColorBrush(SelectedColor), SelectorWhitePen, svPoint, 8, 8);
+        dc.DrawEllipse(null, SelectorBlackPen, svPoint, 10.25, 10.25);
     }
 
     private void EnsureSaturationValueBitmap()
